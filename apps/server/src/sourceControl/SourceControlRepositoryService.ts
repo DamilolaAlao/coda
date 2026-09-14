@@ -19,6 +19,8 @@ import {
   type SourceControlRepositoryLookupInput,
 } from "@t3tools/contracts";
 
+import { cloneDirectoryNameFromRepositoryRef } from "@t3tools/shared/git";
+
 import { ServerConfig } from "../config.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
@@ -142,7 +144,7 @@ export const make = Effect.gen(function* () {
   );
 
   const prepareDestination = Effect.fn("SourceControlRepositoryService.prepareDestination")(
-    function* (destinationPath: string) {
+    function* (destinationPath: string, occupiedParentDirectoryName: string | null) {
       const normalizedDestination = yield* normalizeDestinationPath(destinationPath);
       if (yield* fileSystem.exists(normalizedDestination)) {
         const entries = yield* fileSystem
@@ -159,6 +161,12 @@ export const make = Effect.gen(function* () {
             ),
           );
         if (entries.length > 0) {
+          if (occupiedParentDirectoryName) {
+            return yield* prepareDestination(
+              path.join(normalizedDestination, occupiedParentDirectoryName),
+              null,
+            );
+          }
           return yield* new SourceControlRepositoryError({
             operation: "cloneRepository",
             provider: "unknown",
@@ -180,7 +188,10 @@ export const make = Effect.gen(function* () {
   const cloneRepository = Effect.fn("SourceControlRepositoryService.cloneRepository")(function* (
     input: SourceControlCloneRepositoryInput,
   ) {
-    const preparedDestination = yield* prepareDestination(input.destinationPath);
+    const preparedDestination = yield* prepareDestination(
+      input.destinationPath,
+      cloneDirectoryNameFromRepositoryRef(input.repository ?? input.remoteUrl ?? ""),
+    );
     let repository: SourceControlRepositoryInfo | null = null;
     let remoteUrl = input.remoteUrl?.trim() ?? null;
     let provider: SourceControlProviderKind = input.provider ?? "unknown";

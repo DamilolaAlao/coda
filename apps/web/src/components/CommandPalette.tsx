@@ -1,7 +1,10 @@
 "use client";
 
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { canCreateProjectInEnvironment } from "@t3tools/client-runtime/operations/projects";
+import {
+  canCreateProjectInEnvironment,
+  getAddProjectCloneDestinationQuery,
+} from "@t3tools/client-runtime/operations/projects";
 import { connectionStatusText } from "@t3tools/client-runtime/connection";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {
@@ -1765,8 +1768,21 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
 
-  function getDefaultCloneParentPath(environmentId: EnvironmentId): string {
-    return getAddProjectInitialQueryForEnvironment(environmentId);
+  function getDefaultCloneDestinationPath(input: {
+    readonly environmentId: EnvironmentId;
+    readonly repositoryNameWithOwner?: string | null;
+    readonly repositoryInput: string;
+    readonly remoteUrl: string;
+  }): string {
+    const environment = environments.find(
+      (candidate) => candidate.environmentId === input.environmentId,
+    );
+    return getAddProjectCloneDestinationQuery({
+      baseDirectory: environment?.serverConfig?.settings.addProjectBaseDirectory ?? null,
+      repositoryNameWithOwner: input.repositoryNameWithOwner,
+      repositoryInput: input.repositoryInput,
+      remoteUrl: input.remoteUrl,
+    });
   }
 
   async function submitAddProjectCloneFlow(destinationPathInput?: string): Promise<void> {
@@ -1792,7 +1808,11 @@ function OpenCommandPaletteDialog(props: {
 
       const provider = remoteProjectSourceProvider(addProjectCloneFlow.source);
       if (!provider) {
-        const destinationPath = getDefaultCloneParentPath(addProjectCloneFlow.environmentId);
+        const destinationPath = getDefaultCloneDestinationPath({
+          environmentId: addProjectCloneFlow.environmentId,
+          repositoryInput: rawRepository,
+          remoteUrl: rawRepository,
+        });
         setAddProjectCloneFlow({
           step: "confirm",
           environmentId: addProjectCloneFlow.environmentId,
@@ -1829,7 +1849,12 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
       const repository = lookupResult.value;
-      const destinationPath = getDefaultCloneParentPath(addProjectCloneFlow.environmentId);
+      const destinationPath = getDefaultCloneDestinationPath({
+        environmentId: addProjectCloneFlow.environmentId,
+        repositoryNameWithOwner: repository.nameWithOwner,
+        repositoryInput: rawRepository,
+        remoteUrl: repository.sshUrl,
+      });
       setAddProjectCloneFlow({
         step: "confirm",
         environmentId: addProjectCloneFlow.environmentId,

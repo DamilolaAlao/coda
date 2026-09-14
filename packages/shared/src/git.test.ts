@@ -4,11 +4,27 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   applyGitStatusStreamEvent,
   buildTemporaryWorktreeBranchName,
+  cloneDirectoryNameFromRepositoryRef,
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
+
+describe("cloneDirectoryNameFromRepositoryRef", () => {
+  it("uses the repository leaf from owner/repo and clone URLs", () => {
+    expect(cloneDirectoryNameFromRepositoryRef("octocat/t3code")).toBe("t3code");
+    expect(cloneDirectoryNameFromRepositoryRef("https://github.com/octocat/t3code.git")).toBe(
+      "t3code",
+    );
+    expect(cloneDirectoryNameFromRepositoryRef("git@github.com:octocat/t3code.git")).toBe("t3code");
+  });
+
+  it("returns null for empty refs", () => {
+    expect(cloneDirectoryNameFromRepositoryRef("")).toBeNull();
+    expect(cloneDirectoryNameFromRepositoryRef("   ")).toBeNull();
+  });
+});
 
 describe("normalizeGitRemoteUrl", () => {
   it("canonicalizes equivalent GitHub remotes across protocol variants", () => {

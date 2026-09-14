@@ -8,11 +8,13 @@ import type {
   SourceControlProviderKind,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
+import { cloneDirectoryNameFromRepositoryRef } from "@t3tools/shared/git";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
 
 import {
+  appendBrowsePathSegment,
   ensureBrowseDirectoryPath,
   findProjectByPath,
   inferProjectTitleFromPath,
@@ -174,6 +176,19 @@ export function buildAddProjectRemoteSourceReadiness(
 export function getAddProjectInitialQuery(baseDirectory: string | null | undefined): string {
   const trimmed = baseDirectory?.trim() ?? "";
   return trimmed.length === 0 ? "~/" : ensureBrowseDirectoryPath(trimmed);
+}
+
+export function getAddProjectCloneDestinationQuery(input: {
+  readonly baseDirectory: string | null | undefined;
+  readonly repositoryNameWithOwner?: string | null;
+  readonly repositoryInput?: string;
+  readonly remoteUrl?: string;
+}): string {
+  const parent = getAddProjectInitialQuery(input.baseDirectory);
+  const directoryName = cloneDirectoryNameFromRepositoryRef(
+    input.repositoryNameWithOwner ?? input.remoteUrl ?? input.repositoryInput ?? "",
+  );
+  return directoryName === null ? parent : appendBrowsePathSegment(parent, directoryName);
 }
 
 export function resolveAddProjectPath(input: {

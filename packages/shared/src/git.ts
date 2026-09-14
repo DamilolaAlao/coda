@@ -142,6 +142,31 @@ export function normalizeGitRemoteUrl(value: string): string {
 }
 
 /**
+ * Directory name `git clone` would create from an owner/repo, clone URL, or path.
+ */
+export function cloneDirectoryNameFromRepositoryRef(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const normalized = normalizeGitRemoteUrl(trimmed);
+  const segments = normalized.split("/").filter((segment) => segment.length > 0);
+  const last = segments.at(-1)?.replace(/\.git$/i, "") ?? "";
+  if (
+    last.length === 0 ||
+    last === "." ||
+    last === ".." ||
+    last.includes("@") ||
+    last.includes(":")
+  ) {
+    return null;
+  }
+
+  return last;
+}
+
+/**
  * Best-effort parse of a GitHub `owner/repo` identifier from common remote URL shapes.
  */
 export function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {

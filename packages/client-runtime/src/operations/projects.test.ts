@@ -13,6 +13,7 @@ import {
   canCreateProjectInEnvironment,
   findExistingAddProject,
   getAddProjectInitialQuery,
+  getAddProjectCloneDestinationQuery,
   resolveAddProjectPath,
   sortAddProjectProviderSources,
 } from "./projects.ts";
@@ -32,6 +33,21 @@ describe("add project shared logic", () => {
     expect(getAddProjectInitialQuery("")).toBe("~/");
     expect(getAddProjectInitialQuery("/work")).toBe("/work/");
     expect(getAddProjectInitialQuery("C:\\work")).toBe("C:\\work\\");
+  });
+
+  it("nests clone destinations under ~/ by repository name", () => {
+    expect(
+      getAddProjectCloneDestinationQuery({
+        baseDirectory: "",
+        remoteUrl: "https://github.com/octocat/t3code.git",
+      }),
+    ).toBe("~/t3code/");
+    expect(
+      getAddProjectCloneDestinationQuery({
+        baseDirectory: "",
+        repositoryNameWithOwner: "octocat/t3code",
+      }),
+    ).toBe("~/t3code/");
   });
 
   it("rejects unsupported windows paths on non-windows environments", () => {
