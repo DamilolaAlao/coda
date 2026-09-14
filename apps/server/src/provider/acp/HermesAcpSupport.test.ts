@@ -13,7 +13,8 @@ describe("resolveHermesAcpBaseModelId", () => {
   it("falls back to the Hermes default model", () => {
     expect(resolveHermesAcpBaseModelId(undefined)).toBe(HERMES_DEFAULT_MODEL);
     expect(resolveHermesAcpBaseModelId("   ")).toBe(HERMES_DEFAULT_MODEL);
-    expect(resolveHermesAcpBaseModelId("  openai/gpt-oss-120b  ")).toBe("openai/gpt-oss-120b");
+    expect(resolveHermesAcpBaseModelId("  kimi-k3  ")).toBe("kimi-k3");
+    expect(resolveHermesAcpBaseModelId("  opencode-go/kimi-k3  ")).toBe("kimi-k3");
   });
 });
 
@@ -30,6 +31,29 @@ describe("buildHermesAcpSpawnInput", () => {
       args: ["acp"],
       cwd: "/tmp/project",
       env: { PATH: "/usr/bin" },
+    });
+  });
+
+  it("injects OpenCode Go credentials into the ACP spawn env", () => {
+    const spawn = buildHermesAcpSpawnInput(
+      {
+        binaryPath: "/usr/local/bin/hermes",
+        openCodeGoApiKey: " sk-go ",
+        openCodeGoBaseUrl: "",
+      },
+      "/tmp/project",
+      { PATH: "/usr/bin" },
+    );
+
+    expect(spawn).toEqual({
+      command: "/usr/local/bin/hermes",
+      args: ["acp"],
+      cwd: "/tmp/project",
+      env: {
+        PATH: "/usr/bin",
+        OPENCODE_GO_API_KEY: "sk-go",
+        OPENCODE_GO_BASE_URL: "https://opencode.ai/zen/go/v1",
+      },
     });
   });
 

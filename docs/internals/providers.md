@@ -11,11 +11,11 @@ orchestration layer does not know which one is behind a thread.
 
 | Driver kind   | Driver source                           |
 | ------------- | --------------------------------------- |
+| `hermes`      | [`Drivers/HermesDriver.ts`][hermes]     |
 | `codex`       | [`Drivers/CodexDriver.ts`][codex]       |
 | `claudeAgent` | [`Drivers/ClaudeDriver.ts`][claude]     |
 | `cursor`      | [`Drivers/CursorDriver.ts`][cursor]     |
 | `grok`        | [`Drivers/GrokDriver.ts`][grok]         |
-| `hermes`      | [`Drivers/HermesDriver.ts`][hermes]     |
 | `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode] |
 
 Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an

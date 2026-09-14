@@ -50,7 +50,7 @@ const HERMES_ACP_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 const HERMES_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
     slug: HERMES_DEFAULT_MODEL,
-    name: "GPT-OSS 120B",
+    name: "Kimi K3",
     isCustom: false,
     capabilities: EMPTY_CAPABILITIES,
   },

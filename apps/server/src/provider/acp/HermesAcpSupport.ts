@@ -1,4 +1,10 @@
-import { type HermesSettings, ProviderDriverKind } from "@t3tools/contracts";
+import {
+  type HermesSettings,
+  HERMES_DEFAULT_MODEL,
+  HERMES_OPENCODE_GO_BASE_URL,
+  HERMES_OPENCODE_GO_PROVIDER,
+  ProviderDriverKind,
+} from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -10,11 +16,17 @@ import { normalizeModelSlug } from "@t3tools/shared/model";
 
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
+export { HERMES_DEFAULT_MODEL, HERMES_OPENCODE_GO_BASE_URL, HERMES_OPENCODE_GO_PROVIDER };
+
 const HERMES_DRIVER_KIND = ProviderDriverKind.make("hermes");
 const HERMES_AUTH_METHOD_CUSTOM = "custom";
-export const HERMES_DEFAULT_MODEL = "openai/gpt-oss-120b";
+const OPENCODE_GO_API_KEY_ENV = "OPENCODE_GO_API_KEY";
+const OPENCODE_GO_BASE_URL_ENV = "OPENCODE_GO_BASE_URL";
 
-type HermesAcpRuntimeHermesSettings = Pick<HermesSettings, "binaryPath">;
+type HermesAcpRuntimeHermesSettings = Pick<
+  HermesSettings,
+  "binaryPath" | "openCodeGoApiKey" | "openCodeGoBaseUrl"
+>;
 
 interface HermesAcpRuntimeInput extends Omit<
   AcpSessionRuntime.AcpSessionRuntimeOptions,
@@ -25,16 +37,39 @@ interface HermesAcpRuntimeInput extends Omit<
   readonly environment?: NodeJS.ProcessEnv;
 }
 
+export function buildHermesRuntimeEnvironment(
+  hermesSettings: HermesAcpRuntimeHermesSettings | null | undefined,
+  environment?: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv | undefined {
+  const apiKey = hermesSettings?.openCodeGoApiKey?.trim();
+  const baseUrl = hermesSettings?.openCodeGoBaseUrl?.trim();
+  if (!apiKey && !baseUrl) {
+    return environment;
+  }
+
+  const next: NodeJS.ProcessEnv = { ...(environment ?? {}) };
+  if (apiKey) {
+    next[OPENCODE_GO_API_KEY_ENV] = apiKey;
+  }
+  if (baseUrl) {
+    next[OPENCODE_GO_BASE_URL_ENV] = baseUrl;
+  } else if (apiKey && !next[OPENCODE_GO_BASE_URL_ENV]) {
+    next[OPENCODE_GO_BASE_URL_ENV] = HERMES_OPENCODE_GO_BASE_URL;
+  }
+  return next;
+}
+
 export function buildHermesAcpSpawnInput(
   hermesSettings: HermesAcpRuntimeHermesSettings | null | undefined,
   cwd: string,
   environment?: NodeJS.ProcessEnv,
 ): AcpSessionRuntime.AcpSpawnInput {
+  const env = buildHermesRuntimeEnvironment(hermesSettings, environment);
   return {
     command: hermesSettings?.binaryPath || "hermes",
     args: ["acp"],
     cwd,
-    ...(environment ? { env: environment } : {}),
+    ...(env ? { env } : {}),
   };
 }
 

@@ -135,6 +135,10 @@ const HERMES_DRIVER_KIND = ProviderDriverKind.make("hermes");
 const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
 
 export const DEFAULT_MODEL = "gpt-5.6-sol";
+/** Hermes Agent default: OpenCode Go's Kimi K3 (`opencode-go/kimi-k3`). */
+export const HERMES_DEFAULT_MODEL = "kimi-k3";
+export const HERMES_OPENCODE_GO_PROVIDER = "opencode-go";
+export const HERMES_OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 
 /**
  * Codex default-model preference, most preferred first. The provider snapshot
@@ -153,7 +157,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, strin
   [CLAUDE_DRIVER_KIND]: "claude-sonnet-5",
   [CURSOR_DRIVER_KIND]: "auto",
   [GROK_DRIVER_KIND]: "grok-build",
-  [HERMES_DRIVER_KIND]: "openai/gpt-oss-120b",
+  [HERMES_DRIVER_KIND]: HERMES_DEFAULT_MODEL,
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
 };
 
@@ -164,7 +168,7 @@ export const DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER: Partial<
   [CODEX_DRIVER_KIND]: DEFAULT_TEXT_GENERATION_MODEL,
   [CLAUDE_DRIVER_KIND]: "claude-haiku-4-5",
   [CURSOR_DRIVER_KIND]: "composer-2",
-  [HERMES_DRIVER_KIND]: "openai/gpt-oss-120b",
+  [HERMES_DRIVER_KIND]: HERMES_DEFAULT_MODEL,
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
 };
 
@@ -215,6 +219,9 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Partial<
     "opus-4.5": "claude-opus-4-5",
   },
   [OPENCODE_DRIVER_KIND]: {},
+  [HERMES_DRIVER_KIND]: {
+    "opencode-go/kimi-k3": HERMES_DEFAULT_MODEL,
+  },
 };
 
 // ── Provider display names ────────────────────────────────────────────

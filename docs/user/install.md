@@ -60,7 +60,7 @@ to use, then authenticate it.
 | Claude     | [Claude Code](https://claude.com/product/claude-code) | `claude`       | `claude auth login`   |
 | Cursor     | [Cursor CLI](https://cursor.com/cli)                  | `cursor-agent` | `agent login`         |
 | Grok Build | [Grok Build CLI](https://x.ai/cli)                    | `grok`         | `grok login`          |
-| Hermes     | [Hermes Agent](https://hermes-agent.nousresearch.com) | `hermes`       | Hermes config / `.env` |
+| Hermes     | [Hermes Agent](https://hermes-agent.nousresearch.com) | `hermes`       | OpenCode Go API key     |
 | OpenCode   | [OpenCode](https://opencode.ai)                       | `opencode`     | `opencode auth login` |
 
 Cursor is the one to watch: install Cursor CLI, which provides the `cursor-agent` binary that

@@ -5,8 +5,8 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { ThreadEnvMode } from "./environment.ts";
 import {
-  DEFAULT_TEXT_GENERATION_MODEL,
-  DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
+  HERMES_DEFAULT_MODEL,
+  HERMES_OPENCODE_GO_BASE_URL,
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
@@ -411,13 +411,37 @@ export const HermesSettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "hermes", clearWhenEmpty: "omit" },
       }),
     ),
+    openCodeGoApiKey: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "OpenCode Go API key",
+        description:
+          "Key from opencode.ai/auth. T3 Code passes it to Hermes as OPENCODE_GO_API_KEY.",
+        providerSettingsForm: {
+          control: "password",
+          placeholder: "sk-…",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    openCodeGoBaseUrl: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "OpenCode Go endpoint",
+        description: `Leave blank for ${HERMES_OPENCODE_GO_BASE_URL}.`,
+        providerSettingsForm: {
+          placeholder: HERMES_OPENCODE_GO_BASE_URL,
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
     customModels: Schema.Array(Schema.String).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath"],
+    order: ["binaryPath", "openCodeGoApiKey", "openCodeGoBaseUrl"],
   },
 );
 export type HermesSettings = typeof HermesSettings.Type;
@@ -596,14 +620,8 @@ export const ServerSettings = Schema.Struct({
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
-        instanceId: ProviderInstanceId.make("codex"),
-        model: DEFAULT_TEXT_GENERATION_MODEL,
-        options: [
-          {
-            id: "reasoningEffort",
-            value: DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
-          },
-        ],
+        instanceId: ProviderInstanceId.make("hermes"),
+        model: HERMES_DEFAULT_MODEL,
       }),
     ),
   ),
@@ -621,11 +639,11 @@ export const ServerSettings = Schema.Struct({
   // owns its config in its own package, this struct shrinks to nothing and
   // is removed entirely.
   providers: Schema.Struct({
+    hermes: HermesSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     codex: CodexSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-    hermes: HermesSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
@@ -725,6 +743,8 @@ const GrokSettingsPatch = Schema.Struct({
 const HermesSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
+  openCodeGoApiKey: Schema.optionalKey(TrimmedString),
+  openCodeGoBaseUrl: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 

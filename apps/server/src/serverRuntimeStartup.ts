@@ -1,9 +1,11 @@
 import {
   CommandId,
-  DEFAULT_MODEL,
+  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  HERMES_DEFAULT_MODEL,
   type ModelSelection,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -163,10 +165,13 @@ export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
   Effect.asVoid,
 );
 
-export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => ({
-  instanceId: ProviderInstanceId.make("codex"),
-  model: DEFAULT_MODEL,
-});
+export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => {
+  const hermes = ProviderDriverKind.make("hermes");
+  return {
+    instanceId: ProviderInstanceId.make("hermes"),
+    model: DEFAULT_MODEL_BY_PROVIDER[hermes] ?? HERMES_DEFAULT_MODEL,
+  };
+};
 
 export const resolveWelcomeBase = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
