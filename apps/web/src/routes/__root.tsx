@@ -19,6 +19,7 @@ import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDi
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { PasscodeGateDialog } from "../components/auth/PasscodeGateDialog";
+import { readPasscodeUnlocked, writePasscodeUnlocked } from "../passcodeGate";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -213,13 +214,18 @@ function DocumentTitleSync() {
 
 function PasscodeGateHost() {
   const pathname = useLocation({ select: (location) => location.pathname });
-  const { environments } = useEnvironments();
   const hosted = isHostedStaticApp(new URL(window.location.href));
-  const pairingRoute = pathname === "/pair" || pathname === "/connect" || pathname.startsWith("/connect/");
+  const pairingRoute =
+    pathname === "/pair" || pathname === "/connect" || pathname.startsWith("/connect/");
+  const [unlocked, setUnlocked] = useState(() => readPasscodeUnlocked());
 
   return (
     <PasscodeGateDialog
-      open={hosted && !pairingRoute && environments.length === 0}
+      open={hosted && !pairingRoute && !unlocked}
+      onUnlocked={() => {
+        writePasscodeUnlocked(true);
+        setUnlocked(true);
+      }}
     />
   );
 }

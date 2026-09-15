@@ -128,7 +128,7 @@ export function PairingRouteSurface({
               disabled={isSubmitting}
               nativeInput
               onChange={(event) => setCredential(event.currentTarget.value)}
-              placeholder="Paste a JWT passcode"
+              placeholder="Paste the pairing token"
               spellCheck={false}
               value={credential}
             />
