@@ -2,9 +2,10 @@
 
 > For maintainers. Using Coda? See [docs/user](../user/).
 
-This fork's hosted Docker image lives on Zerops (`coda` / `stack`):
-the T3 server plus the built web client (`dist/client`). Hermes is installed in the image
-because T3 only wraps provider binaries.
+This fork's hosted stack lives on Zerops (`coda` / `stack`): native Node 24 (not
+a Docker VM) so Automatic Scaling can move CPU, RAM, and disk. The T3 server plus
+the built web client (`dist/client`) run from `/var/www`. Hermes and native addons
+are installed in the cached runtime image via `run.prepareCommands`.
 
 ## Layout
 
@@ -13,13 +14,13 @@ root.
 
 | File | Role |
 | --- | --- |
-| `Dockerfile` | Single image: Node 24, native addons, Hermes, `serve` on 3773 |
 | `package.json` | Runtime deps (`@ff-labs/fff-node`, `node-pty`) |
-| `install-hermes.sh` | Non-interactive Hermes install into `vendor/` |
+| `install-hermes.sh` | Non-interactive Hermes install into the runtime image |
 | `hermes-wrapper.sh` | Relocatable `bin/hermes` |
-| `run.sh` | Zerops start: `docker build` + `docker run --network=host` |
-| `zerops.yml` | Build copies the context; runtime `docker build` + `docker run --network=host` |
+| `start.sh` | Runtime start: `node dist/bin.mjs serve` |
+| `zerops.yml` | Native Node 24 + Automatic Scaling; prepare installs Hermes |
 | `pack.sh` | Bundles server + web dist into a push directory |
+| `Dockerfile` / `run.sh` | Optional local Docker image; not used on Zerops |
 
 ## Push
 
@@ -31,16 +32,20 @@ deploy/zerops/pack.sh /tmp/coda-zerops
 zcli service push stack -P <project-id> --working-dir /tmp/coda-zerops --no-git
 ```
 
-`pack.sh` stamps the image tag with the current git short SHA so Zerops rebuilds on each push.
+`pack.sh` stamps `IMAGE_TAG` with the current git short SHA (cache-busting only).
 
 Do not set a `PATH` env var in `zerops.yml`; Zerops reserves that key.
 
 Hermes auth is still an OpenCode Go API key in T3 Settings (or `OPENCODE_GO_API_KEY` in Hermes's
 `.env`). The installer only writes `model.provider: opencode-go`.
 
+## Scaling
+
+`stack` uses Automatic Scaling on a single container (`minContainers`/`maxContainers` = 1)
+because T3 state is SQLite. CPU/RAM/disk scale inside that container between the min and
+max in `zerops.yml`. Docker VMs cannot do that — they only take fixed `cpu`/`ram`/`disk`.
+
 ## Persistence
 
-`T3CODE_HOME` is `/data` inside the app container. `run.sh` mounts a Docker named
-volume (`coda-data`) there so pairing keys, SQLite, and preview tabs survive Zerops
-extracts into `/var/www`. Leftover `/var/www/data` from older bind-mounts is copied
-into the volume once if the volume is empty.
+`T3CODE_HOME` is `/home/zerops/t3-home`, outside `/var/www`, so pairing keys, SQLite, and
+preview tabs survive deploys that replace the app tree.

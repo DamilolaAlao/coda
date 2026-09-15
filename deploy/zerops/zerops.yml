@@ -6,13 +6,33 @@ zerops:
       buildCommands:
         - "true"
       deployFiles: ./
+      addToRunPrepare:
+        - package.json
+        - install-hermes.sh
+        - hermes-wrapper.sh
     run:
       os: ubuntu
-      base: docker@26.1
+      base: nodejs@24
+      # Native Node runtime (not Docker VMs) so Automatic Scaling can move CPU/RAM/disk.
+      # Keep a single container: T3 SQLite is process-local, not HA.
+      minContainers: 1
+      maxContainers: 1
       verticalAutoscaling:
-        cpu: 2
-        ram: 4
-        disk: 20
+        cpuMode: SHARED
+        minCpu: 1
+        maxCpu: 5
+        minRam: 2
+        maxRam: 8
+        minDisk: 10
+        maxDisk: 40
+        startCpuCoreCount: 2
+      prepareCommands:
+        - sudo apt-get update
+        - sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-venv make g++ curl git ca-certificates
+        - npm i --omit=dev --ignore-scripts=false
+        - npm rebuild node-pty --foreground-scripts || true
+        - chmod +x install-hermes.sh hermes-wrapper.sh
+        - ./install-hermes.sh
       ports:
         - port: 3773
           httpSupport: true
@@ -21,9 +41,10 @@ zerops:
         IMAGE_TAG: __IMAGE_TAG__
         T3CODE_HOST: 0.0.0.0
         T3CODE_PORT: "3773"
-        T3CODE_HOME: /data
+        T3CODE_HOME: /home/zerops/t3-home
         T3CODE_PUBLIC_URL: https://stack-3069-3773.prg1.zerops.app
         # Runtime secret only. Do not bake this into the image or web bundle.
         T3CODE_PAIRING_CODE: "722110"
-        HERMES_HOME: /app/vendor/hermes-home
-      start: /bin/sh /var/www/run.sh
+        HERMES_HOME: /home/zerops/vendor/hermes-home
+        NODE_PATH: /home/zerops/node_modules
+      start: /bin/sh /var/www/start.sh

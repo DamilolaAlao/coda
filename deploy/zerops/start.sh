@@ -2,10 +2,13 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+if [ -d /home/zerops/bin ]; then
+  export PATH="/home/zerops/bin:$PATH"
+fi
 export PATH="$ROOT/bin:$PATH"
 export HERMES_HOME="${HERMES_HOME:-$ROOT/vendor/hermes-home}"
-export NODE_PATH="$ROOT/node_modules${NODE_PATH:+:$NODE_PATH}"
-export T3CODE_HOME="${T3CODE_HOME:-/data}"
+export NODE_PATH="${NODE_PATH:-$ROOT/node_modules}"
+export T3CODE_HOME="${T3CODE_HOME:-/home/zerops/t3-home}"
 mkdir -p "$T3CODE_HOME"
 
 if [ -f "$ROOT/vendor/hermes-agent/venv/pyvenv.cfg" ]; then
