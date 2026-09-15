@@ -12,6 +12,8 @@ import pkg from "./package.json" with { type: "json" };
 
 import { DEV_PROXIED_PATH_PREFIXES } from "@t3tools/shared/devProxy";
 
+import { resolvePairingUrl } from "./src/hostedPairing";
+import { resolveHostedPasscode } from "./src/passcodeGate";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 
 const repoEnv = loadRepoEnv();
@@ -53,6 +55,11 @@ const configuredHostedAppUrl = (() => {
   }
   return undefined;
 })();
+const configuredPairingUrl = resolvePairingUrl(
+  process.env.VITE_PAIRING_URL ??
+    process.env.CODA_PAIRING_URL ??
+    process.env.VITE_DEFAULT_ENVIRONMENT_URL,
+);
 const sourcemapEnv = process.env.T3CODE_WEB_SOURCEMAP?.trim().toLowerCase();
 
 // Vite 8.1's experimental bundled dev mode: serves rolldown-bundled chunks in
@@ -201,9 +208,10 @@ export default defineConfig(() => {
       "import.meta.env.VITE_RELAY_OTLP_TRACES_TOKEN": JSON.stringify(configuredRelayTracingToken),
       "import.meta.env.VITE_HOSTED_APP_URL": JSON.stringify(configuredHostedAppUrl ?? ""),
       "import.meta.env.VITE_HOSTED_APP_CHANNEL": JSON.stringify(configuredHostedAppChannel),
-      "import.meta.env.VITE_DEFAULT_ENVIRONMENT_URL": JSON.stringify(
-        process.env.VITE_DEFAULT_ENVIRONMENT_URL?.trim() ||
-          "https://app-3069-3773.prg1.zerops.app",
+      "import.meta.env.VITE_DEFAULT_ENVIRONMENT_URL": JSON.stringify(configuredPairingUrl),
+      "import.meta.env.VITE_PAIRING_URL": JSON.stringify(configuredPairingUrl),
+      "import.meta.env.VITE_PAIRING_CODE": JSON.stringify(
+        resolveHostedPasscode(process.env.VITE_PAIRING_CODE ?? process.env.CODA_PAIRING_CODE),
       ),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
     },

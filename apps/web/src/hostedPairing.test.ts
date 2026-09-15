@@ -3,14 +3,26 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildHostedChannelSelectionUrl,
   buildHostedPairingUrl,
+  DEFAULT_PAIRING_URL,
   hasHostedPairingRequest,
   isHostedStaticApp,
   readHostedPairingRequest,
+  resolvePairingUrl,
 } from "./hostedPairing";
 
 describe("hostedPairing", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("uses a valid env pairing URL and falls back to the default", () => {
+    expect(resolvePairingUrl(undefined)).toBe(DEFAULT_PAIRING_URL);
+    expect(resolvePairingUrl("")).toBe(DEFAULT_PAIRING_URL);
+    expect(resolvePairingUrl("ftp://backend.example.com")).toBe(DEFAULT_PAIRING_URL);
+    expect(resolvePairingUrl("https://backend.example.com:3773/pair#token=x")).toBe(
+      "https://backend.example.com:3773",
+    );
+    expect(resolvePairingUrl("app-3069-3773.prg1.zerops.app")).toBe(DEFAULT_PAIRING_URL);
   });
 
   it("reads hosted pairing host and query token parameters", () => {
@@ -58,13 +70,23 @@ describe("hostedPairing", () => {
     expect(url.searchParams.has("next")).toBe(false);
   });
 
+  it("fills a missing hosted pairing host from the default pairing URL", () => {
+    expect(readHostedPairingRequest(new URL("https://app.t3.codes/pair#token=ABCD1234"))).toEqual(
+      {
+        host: DEFAULT_PAIRING_URL,
+        token: "ABCD1234",
+        label: "",
+      },
+    );
+    expect(hasHostedPairingRequest(new URL("https://app.t3.codes/pair?token=ABCD1234"))).toBe(
+      true,
+    );
+  });
+
   it("ignores incomplete hosted pairing requests", () => {
     expect(
       hasHostedPairingRequest(new URL("https://app.t3.codes/pair?host=backend.example.com")),
     ).toBe(false);
-    expect(hasHostedPairingRequest(new URL("https://app.t3.codes/pair?token=ABCD1234"))).toBe(
-      false,
-    );
   });
 
   it("detects the hosted static app only when no backend URL is configured", () => {

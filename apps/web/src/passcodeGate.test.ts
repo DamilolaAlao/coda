@@ -8,11 +8,21 @@ import {
   HOSTED_PASSCODE_MAX_ATTEMPTS,
   readPasscodeAttemptState,
   readPasscodeUnlocked,
+  resolveHostedPasscode,
   writePasscodeAttemptState,
   writePasscodeUnlocked,
 } from "./passcodeGate";
 
 describe("hosted passcode gate", () => {
+  it("uses a 6-digit env pairing code and falls back to the default", () => {
+    expect(resolveHostedPasscode(undefined)).toBe(DEFAULT_HOSTED_PASSCODE);
+    expect(resolveHostedPasscode("")).toBe(DEFAULT_HOSTED_PASSCODE);
+    expect(resolveHostedPasscode("abc123")).toBe(DEFAULT_HOSTED_PASSCODE);
+    expect(resolveHostedPasscode("123")).toBe(DEFAULT_HOSTED_PASSCODE);
+    expect(resolveHostedPasscode("111222")).toBe("111222");
+    expect(resolveHostedPasscode("  722110  ")).toBe("722110");
+  });
+
   it("accepts the hardcoded 6-digit passcode", () => {
     expect(
       evaluateHostedPasscodeAttempt({
