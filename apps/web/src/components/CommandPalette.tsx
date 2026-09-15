@@ -42,6 +42,7 @@ import {
   SettingsIcon,
   SquarePenIcon,
   TextSearchIcon,
+  Unplug,
 } from "lucide-react";
 import {
   useCallback,
@@ -1547,6 +1548,20 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
+    value: "action:http-client",
+    searchTerms: ["http", "rest", "api", "insomnia", "kong", "request", "client"],
+    title: "Toggle HTTP client",
+    disabled: !activeThread,
+    icon: <Unplug className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "http.toggle",
+    run: async () => {
+      if (!activeThread) return;
+      useRightPanelStore.getState().toggle(scopeThreadRef(activeThread.environmentId, activeThread.id), "http");
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
     value: "action:settings",
     searchTerms: ["settings", "preferences", "configuration", "keybindings"],
     title: "Open settings",
@@ -1779,7 +1794,7 @@ function OpenCommandPaletteDialog(props: {
     );
     return getAddProjectCloneDestinationQuery({
       baseDirectory: environment?.serverConfig?.settings.addProjectBaseDirectory ?? null,
-      repositoryNameWithOwner: input.repositoryNameWithOwner,
+      repositoryNameWithOwner: input.repositoryNameWithOwner ?? null,
       repositoryInput: input.repositoryInput,
       remoteUrl: input.remoteUrl,
     });

@@ -62,6 +62,7 @@ export const EnvironmentRequestInvalidReason = Schema.Literals([
   "invalid_scope",
   "scope_not_granted",
   "invalid_command",
+  "invalid_http_target",
 ]);
 export type EnvironmentRequestInvalidReason = typeof EnvironmentRequestInvalidReason.Type;
 
@@ -90,6 +91,7 @@ export const EnvironmentInternalErrorReason = Schema.Literals([
   "orchestration_snapshot_failed",
   "orchestration_thread_snapshot_failed",
   "orchestration_dispatch_failed",
+  "http_client_send_failed",
   "internal_error",
 ]);
 export type EnvironmentInternalErrorReason = typeof EnvironmentInternalErrorReason.Type;
@@ -546,6 +548,61 @@ export class EnvironmentPullRequestsHttpApi extends HttpApiGroup.make("pullReque
   }).middleware(EnvironmentAuthenticatedAuth),
 ) {}
 
+export const HttpClientMethod = Schema.Literals([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+]);
+export type HttpClientMethod = typeof HttpClientMethod.Type;
+
+export const HttpClientHeaderPair = Schema.Struct({
+  name: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256)),
+  value: Schema.String.check(Schema.isMaxLength(8192)),
+});
+export type HttpClientHeaderPair = typeof HttpClientHeaderPair.Type;
+
+export const HTTP_CLIENT_MAX_BODY_CHARS = 2_000_000;
+export const HTTP_CLIENT_MAX_RESPONSE_CHARS = 1_000_000;
+
+export const HttpClientSendInput = Schema.Struct({
+  method: HttpClientMethod,
+  url: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(4096)),
+  headers: Schema.Array(HttpClientHeaderPair).check(Schema.isMaxLength(64)),
+  body: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(HTTP_CLIENT_MAX_BODY_CHARS))),
+});
+export type HttpClientSendInput = typeof HttpClientSendInput.Type;
+
+export const HttpClientSendResult = Schema.Struct({
+  status: Schema.Int,
+  statusText: Schema.String,
+  headers: Schema.Array(HttpClientHeaderPair),
+  body: Schema.String,
+  truncated: Schema.Boolean,
+  durationMs: Schema.Int,
+});
+export type HttpClientSendResult = typeof HttpClientSendResult.Type;
+
+const EnvironmentHttpClientSendErrors = [
+  EnvironmentRequestInvalidError,
+  EnvironmentAuthInvalidError,
+  EnvironmentScopeRequiredError,
+  EnvironmentInternalError,
+] as const;
+
+/** Browser REST client sends through the environment so CORS and local APIs work. */
+export class EnvironmentHttpClientHttpApi extends HttpApiGroup.make("httpClient").add(
+  HttpApiEndpoint.post("send", "/api/http-client/send", {
+    headers: OptionalBearerHeaders,
+    payload: HttpClientSendInput,
+    success: HttpClientSendResult,
+    error: EnvironmentHttpClientSendErrors,
+  }).middleware(EnvironmentAuthenticatedAuth),
+) {}
+
 export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
   .add(
     HttpApiEndpoint.post("linkProof", "/api/connect/link-proof", {
@@ -612,4 +669,5 @@ export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentPullRequestsHttpApi)
+  .add(EnvironmentHttpClientHttpApi)
   .add(EnvironmentConnectHttpApi) {}

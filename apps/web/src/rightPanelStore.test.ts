@@ -212,6 +212,14 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("opens the HTTP client as a singleton surface", () => {
+    useRightPanelStore.getState().open(refA, "http");
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("http");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces).toEqual([
+      { id: "http", kind: "http" },
+    ]);
+  });
+
   it("open sets the active panel for a thread", () => {
     useRightPanelStore.getState().open(refA, "preview");
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("preview");
