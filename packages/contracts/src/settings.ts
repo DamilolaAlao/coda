@@ -414,9 +414,9 @@ export const HermesSettings = makeProviderSettingsSchema(
     openCodeGoApiKey: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
-        title: "OpenCode Go API key",
+        title: "API key",
         description:
-          "Key from opencode.ai/auth. Coda passes it to Hermes as OPENCODE_GO_API_KEY.",
+          "OpenCode Go or OpenAI-compatible key (OpenRouter). Passed as OPENCODE_GO_API_KEY or OPENROUTER_API_KEY.",
         providerSettingsForm: {
           control: "password",
           placeholder: "sk-…",
@@ -427,10 +427,33 @@ export const HermesSettings = makeProviderSettingsSchema(
     openCodeGoBaseUrl: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
-        title: "OpenCode Go endpoint",
-        description: `Leave blank for ${HERMES_OPENCODE_GO_BASE_URL}.`,
+        title: "OpenAI-compatible endpoint",
+        description: `Leave blank for OpenCode Go (${HERMES_OPENCODE_GO_BASE_URL}). Use https://openrouter.ai/api/v1 for OpenRouter.`,
         providerSettingsForm: {
           placeholder: HERMES_OPENCODE_GO_BASE_URL,
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    preferredProviders: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Preferred providers",
+        description:
+          "OpenRouter provider order (comma-separated slugs, e.g. anthropic, openai, together). First is preferred; others are fallbacks.",
+        providerSettingsForm: {
+          placeholder: "anthropic, openai",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    providerSort: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Provider sort",
+        description: "OpenRouter ranking: price, throughput, or latency. Leave blank to use order only.",
+        providerSettingsForm: {
+          placeholder: "price",
           clearWhenEmpty: "omit",
         },
       }),
@@ -441,7 +464,7 @@ export const HermesSettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["binaryPath", "openCodeGoApiKey", "openCodeGoBaseUrl"],
+    order: ["binaryPath", "openCodeGoApiKey", "openCodeGoBaseUrl", "preferredProviders", "providerSort"],
   },
 );
 export type HermesSettings = typeof HermesSettings.Type;
@@ -745,6 +768,8 @@ const HermesSettingsPatch = Schema.Struct({
   binaryPath: Schema.optionalKey(TrimmedString),
   openCodeGoApiKey: Schema.optionalKey(TrimmedString),
   openCodeGoBaseUrl: Schema.optionalKey(TrimmedString),
+  preferredProviders: Schema.optionalKey(TrimmedString),
+  providerSort: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 

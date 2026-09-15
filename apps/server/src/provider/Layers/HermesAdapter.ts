@@ -1,8 +1,9 @@
 /**
  * HermesAdapter — Hermes Agent CLI (`hermes acp`) via stock ACP.
  *
- * Auth is Hermes's `custom` runtime credentials. T3 can inject an OpenCode Go
- * API key as `OPENCODE_GO_API_KEY` when it is set in Hermes settings.
+ * Auth is Hermes's `custom` runtime credentials. T3 injects OpenCode Go as
+ * `OPENCODE_GO_API_KEY` or OpenRouter as `OPENROUTER_API_KEY`, and writes
+ * preferred-provider routing into Hermes `config.yaml` when using OpenRouter.
  *
  * @module HermesAdapter
  */

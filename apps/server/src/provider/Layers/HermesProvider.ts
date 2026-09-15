@@ -35,6 +35,11 @@ import {
   makeHermesAcpRuntime,
   resolveHermesAcpBaseModelId,
 } from "../acp/HermesAcpSupport.ts";
+import {
+  fetchOpenAiCompatibleModels,
+  mergeHermesCatalogModels,
+  resolveHermesOpenAiEndpoint,
+} from "../acp/hermesOpenAiCompat.ts";
 
 const HERMES_PRESENTATION = {
   displayName: "Hermes",
@@ -47,6 +52,7 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
 
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 const HERMES_ACP_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
+const HERMES_OPENAI_MODELS_TIMEOUT_MS = 8_000;
 
 const HERMES_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
@@ -106,27 +112,58 @@ function hermesModelsFromSettings(
 function buildHermesDiscoveredModelsFromSessionModelState(
   modelState: EffectAcpSchema.SessionModelState | null | undefined,
 ): ReadonlyArray<ServerProviderModel> {
-  if (!modelState) {
+  if (!modelState || modelState.availableModels.length === 0) {
     return [];
   }
-  const currentId = modelState.currentModelId?.trim();
-  const listed = currentId
-    ? modelState.availableModels.find((model) => model.modelId === currentId)
-    : modelState.availableModels[0];
-  const rawId = currentId || listed?.modelId;
-  if (!rawId) {
-    return [];
-  }
-  const slug = resolveHermesAcpBaseModelId(rawId);
-  return [
-    {
-      slug,
-      name: listed?.name.trim() || slug,
-      isCustom: false,
-      capabilities: EMPTY_CAPABILITIES,
-    },
-  ];
+  const seen = new Set<string>();
+  return modelState.availableModels
+    .map((model): ServerProviderModel | undefined => {
+      const slug = resolveHermesAcpBaseModelId(model.modelId);
+      if (!slug || seen.has(slug)) {
+        return undefined;
+      }
+      seen.add(slug);
+      return {
+        slug,
+        name: model.name.trim() || slug,
+        isCustom: false,
+        capabilities: EMPTY_CAPABILITIES,
+      };
+    })
+    .filter((model): model is ServerProviderModel => model !== undefined);
 }
+
+const discoverHermesModelsViaOpenAiCompat = (hermesSettings: HermesSettings) =>
+  Effect.gen(function* () {
+    const endpoint = resolveHermesOpenAiEndpoint({
+      apiKey: hermesSettings.openCodeGoApiKey,
+      baseUrl: hermesSettings.openCodeGoBaseUrl,
+    });
+    if (!endpoint) {
+      return [] as ReadonlyArray<ServerProviderModel>;
+    }
+    const models = yield* Effect.tryPromise({
+      try: () =>
+        fetchOpenAiCompatibleModels({
+          baseUrl: endpoint.baseUrl,
+          apiKey: hermesSettings.openCodeGoApiKey.trim(),
+        }),
+      catch: (cause) => cause,
+    }).pipe(Effect.timeoutOption(HERMES_OPENAI_MODELS_TIMEOUT_MS));
+    if (Option.isNone(models)) {
+      yield* Effect.logWarning(
+        `Hermes OpenAI-compatible /models timed out after ${HERMES_OPENAI_MODELS_TIMEOUT_MS}ms.`,
+      );
+      return [];
+    }
+    return models.value;
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Hermes OpenAI-compatible /models listing failed", {
+        errorTag: causeErrorTag(cause),
+      }).pipe(Effect.as([] as ReadonlyArray<ServerProviderModel>)),
+    ),
+  );
 
 const discoverHermesModelsViaAcp = (
   hermesSettings: HermesSettings,
@@ -257,6 +294,7 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
     });
   }
 
+  const openAiModels = yield* discoverHermesModelsViaOpenAiCompat(hermesSettings);
   const discoveryExit = yield* discoverHermesModelsViaAcp(hermesSettings, environment).pipe(
     Effect.timeoutOption(HERMES_ACP_MODEL_DISCOVERY_TIMEOUT_MS),
     Effect.exit,
@@ -269,7 +307,10 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
       presentation: HERMES_PRESENTATION,
       enabled: hermesSettings.enabled,
       checkedAt,
-      models: fallbackModels,
+      models:
+        openAiModels.length > 0
+          ? hermesModelsFromSettings(hermesSettings.customModels, openAiModels)
+          : fallbackModels,
       probe: {
         installed: true,
         version,
@@ -287,7 +328,10 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
       presentation: HERMES_PRESENTATION,
       enabled: hermesSettings.enabled,
       checkedAt,
-      models: fallbackModels,
+      models:
+        openAiModels.length > 0
+          ? hermesModelsFromSettings(hermesSettings.customModels, openAiModels)
+          : fallbackModels,
       probe: {
         installed: true,
         version,
@@ -297,7 +341,8 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
       },
     });
   }
-  const discoveredModels = discoveryExit.value.value;
+  const acpModels = discoveryExit.value.value;
+  const discoveredModels = mergeHermesCatalogModels(openAiModels, acpModels);
   const models =
     discoveredModels.length > 0
       ? hermesModelsFromSettings(hermesSettings.customModels, discoveredModels)

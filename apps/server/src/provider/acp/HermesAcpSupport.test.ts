@@ -1,6 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as EffectAcpErrors from "effect-acp/errors";
+import * as NodeFs from "node:fs";
+import * as NodeOs from "node:os";
 import * as NodePath from "node:path";
 
 import {
@@ -63,6 +65,32 @@ describe("buildHermesAcpSpawnInput", () => {
     expect(spawn.command).toBe("hermes");
     expect(spawn.args).toEqual(["acp"]);
     expect(spawn.env).toBeUndefined();
+  });
+
+  it("injects OpenRouter credentials and preferred provider routing", () => {
+    const hermesHome = NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "coda-hermes-"));
+    const spawn = buildHermesAcpSpawnInput(
+      {
+        binaryPath: "/usr/local/bin/hermes",
+        openCodeGoApiKey: " sk-or-v1-test ",
+        openCodeGoBaseUrl: "https://openrouter.ai/api/v1",
+        preferredProviders: "anthropic, openai",
+        providerSort: "throughput",
+      },
+      "/tmp/project",
+      { PATH: "/usr/bin", HERMES_HOME: hermesHome },
+    );
+
+    expect(spawn.env).toMatchObject({
+      OPENROUTER_API_KEY: "sk-or-v1-test",
+      HERMES_HOME: hermesHome,
+    });
+    expect(spawn.env?.OPENCODE_GO_API_KEY).toBeUndefined();
+    const config = NodeFs.readFileSync(NodePath.join(hermesHome, "config.yaml"), "utf8");
+    expect(config).toContain("provider_routing:");
+    expect(config).toContain("sort: \"throughput\"");
+    expect(config).toContain('- "anthropic"');
+    expect(config).toContain('- "openai"');
   });
 });
 

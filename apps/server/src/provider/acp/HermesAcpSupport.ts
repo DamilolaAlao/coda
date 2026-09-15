@@ -4,6 +4,7 @@ import {
   HERMES_OPENCODE_GO_API_KEY_ENV,
   HERMES_OPENCODE_GO_BASE_URL,
   HERMES_OPENCODE_GO_BASE_URL_ENV,
+  HERMES_OPENROUTER_API_KEY_ENV,
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import * as NodePath from "node:path";
@@ -17,6 +18,13 @@ import type * as EffectAcpSchema from "effect-acp/schema";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
+import {
+  normalizeProviderSort,
+  parseProviderSlugList,
+  resolveHermesHome,
+  resolveHermesOpenAiEndpoint,
+  syncHermesProviderRoutingConfig,
+} from "./hermesOpenAiCompat.ts";
 
 export { HERMES_DEFAULT_MODEL };
 
@@ -25,7 +33,7 @@ const HERMES_AUTH_METHOD_CUSTOM = "custom";
 
 type HermesAcpRuntimeHermesSettings = Pick<
   HermesSettings,
-  "binaryPath" | "openCodeGoApiKey" | "openCodeGoBaseUrl"
+  "binaryPath" | "openCodeGoApiKey" | "openCodeGoBaseUrl" | "preferredProviders" | "providerSort"
 >;
 
 interface HermesAcpRuntimeInput extends Omit<
@@ -67,20 +75,36 @@ export function buildHermesRuntimeEnvironment(
   const command = hermesSettings?.binaryPath || "hermes";
   const apiKey = hermesSettings?.openCodeGoApiKey?.trim();
   const baseUrl = hermesSettings?.openCodeGoBaseUrl?.trim();
-  const needsOverlay = Boolean(apiKey || baseUrl || NodePath.isAbsolute(command));
+  const preferredOrder = parseProviderSlugList(hermesSettings?.preferredProviders);
+  const providerSort = normalizeProviderSort(hermesSettings?.providerSort);
+  const endpoint = resolveHermesOpenAiEndpoint({ apiKey, baseUrl });
+  const needsOverlay = Boolean(
+    apiKey || baseUrl || NodePath.isAbsolute(command) || preferredOrder.length > 0 || providerSort,
+  );
   if (!needsOverlay) {
     return environment;
   }
 
   let next: NodeJS.ProcessEnv = { ...(environment ?? {}) };
   next = withHermesBinaryOnPath(command, next);
-  if (apiKey) {
-    next[HERMES_OPENCODE_GO_API_KEY_ENV] = apiKey;
-  }
-  if (baseUrl) {
-    next[HERMES_OPENCODE_GO_BASE_URL_ENV] = baseUrl;
-  } else if (apiKey && !next[HERMES_OPENCODE_GO_BASE_URL_ENV]) {
-    next[HERMES_OPENCODE_GO_BASE_URL_ENV] = HERMES_OPENCODE_GO_BASE_URL;
+  if (endpoint?.kind === "openrouter") {
+    if (apiKey) {
+      next[HERMES_OPENROUTER_API_KEY_ENV] = apiKey;
+    }
+    syncHermesProviderRoutingConfig({
+      hermesHome: resolveHermesHome(next),
+      order: preferredOrder,
+      sort: providerSort,
+    });
+  } else {
+    if (apiKey) {
+      next[HERMES_OPENCODE_GO_API_KEY_ENV] = apiKey;
+    }
+    if (baseUrl) {
+      next[HERMES_OPENCODE_GO_BASE_URL_ENV] = baseUrl;
+    } else if (apiKey && !next[HERMES_OPENCODE_GO_BASE_URL_ENV]) {
+      next[HERMES_OPENCODE_GO_BASE_URL_ENV] = HERMES_OPENCODE_GO_BASE_URL;
+    }
   }
   return next;
 }

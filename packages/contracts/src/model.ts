@@ -141,6 +141,8 @@ export const HERMES_OPENCODE_GO_PROVIDER = "opencode-go";
 export const HERMES_OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const HERMES_OPENCODE_GO_API_KEY_ENV = "OPENCODE_GO_API_KEY";
 export const HERMES_OPENCODE_GO_BASE_URL_ENV = "OPENCODE_GO_BASE_URL";
+export const HERMES_OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY";
+export const HERMES_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
  * Codex default-model preference, most preferred first. The provider snapshot
