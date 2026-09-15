@@ -10,7 +10,7 @@ export interface HostedPairingRequest {
 
 export type HostedAppChannel = "latest" | "nightly";
 
-export const DEFAULT_PAIRING_URL = "https://app-3069-3773.prg1.zerops.app";
+export const DEFAULT_PAIRING_URL = "https://stack-3069-3773.prg1.zerops.app";
 
 export function resolvePairingUrl(raw: string | undefined): string {
   const trimmed = raw?.trim() ?? "";

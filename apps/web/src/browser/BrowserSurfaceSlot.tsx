@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { type ReactNode, useLayoutEffect, useRef } from "react";
 
 import { acquireBrowserSurface } from "./browserSurfaceStore";
 
@@ -11,6 +11,7 @@ export function BrowserSurfaceSlot(props: {
   readonly layoutVersion?: string | number;
   readonly className?: string;
   readonly fitSourceContent?: boolean;
+  readonly children?: ReactNode;
 }) {
   const {
     tabId,
@@ -19,6 +20,7 @@ export function BrowserSurfaceSlot(props: {
     layoutVersion,
     className,
     fitSourceContent = false,
+    children,
   } = props;
   const elementRef = useRef<HTMLDivElement | null>(null);
   const presentationRef = useRef({ visible, cornerRadius });
@@ -76,5 +78,9 @@ export function BrowserSurfaceSlot(props: {
     updateRef.current?.();
   }, [cornerRadius, layoutVersion, visible]);
 
-  return <div ref={elementRef} className={className} data-browser-surface-slot={tabId} />;
+  return (
+    <div ref={elementRef} className={className} data-browser-surface-slot={tabId}>
+      {children}
+    </div>
+  );
 }

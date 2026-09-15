@@ -197,6 +197,40 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
     ),
   );
 
+  it.effect("exchanges a reusable 6-digit passcode for a session grant", () =>
+    Effect.gen(function* () {
+      const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
+      const first = yield* bootstrapCredentials.consume("722110");
+      const second = yield* bootstrapCredentials.consume("722110");
+
+      expect(first.method).toBe("one-time-token");
+      expect(first.subject).toBe("passcode-bootstrap");
+      expect(first.scopes).toContain("access:write");
+      expect(second.subject).toBe("passcode-bootstrap");
+    }).pipe(Effect.provide(makePairingGrantStoreLayer())),
+  );
+
+  it.effect("rate-limits incorrect passcode attempts without leaking the secret", () =>
+    Effect.gen(function* () {
+      const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
+
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const mismatch = yield* Effect.flip(bootstrapCredentials.consume("000000"));
+        expect(mismatch._tag).toBe("UnknownBootstrapCredentialError");
+      }
+
+      const locked = yield* Effect.flip(bootstrapCredentials.consume("000000"));
+      expect(locked._tag).toBe("PasscodeLockedError");
+
+      const stillLocked = yield* Effect.flip(bootstrapCredentials.consume("722110"));
+      expect(stillLocked._tag).toBe("PasscodeLockedError");
+
+      yield* TestClock.adjust(Duration.seconds(30));
+      const recovered = yield* bootstrapCredentials.consume("722110");
+      expect(recovered.subject).toBe("passcode-bootstrap");
+    }).pipe(Effect.provide(Layer.merge(makePairingGrantStoreLayer(), TestClock.layer()))),
+  );
+
   it.effect("lists and revokes active pairing links", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;

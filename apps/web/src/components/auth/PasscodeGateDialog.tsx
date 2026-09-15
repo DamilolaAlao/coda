@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  configuredHostedPasscode,
   emptyPasscodeAttemptState,
-  evaluateHostedPasscodeAttempt,
+  evaluateHostedPasscodeLockout,
+  evaluatePasscodeFormat,
   formatLockoutMessage,
   HOSTED_PASSCODE_LENGTH,
   readPasscodeAttemptState,
+  recordHostedPasscodeFailure,
   writePasscodeAttemptState,
 } from "../../passcodeGate";
 import {
@@ -22,13 +23,14 @@ import { Input } from "../ui/input";
 
 export function PasscodeGateDialog({
   open,
-  onUnlocked,
+  onSubmit,
 }: {
   readonly open: boolean;
-  readonly onUnlocked: () => void;
+  readonly onSubmit: (passcode: string) => Promise<void>;
 }) {
   const [passcode, setPasscode] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [attemptState, setAttemptState] = useState(emptyPasscodeAttemptState);
   const [lockoutRemainingMs, setLockoutRemainingMs] = useState(0);
 
@@ -51,34 +53,56 @@ export function PasscodeGateDialog({
 
   const locked = lockoutRemainingMs > 0;
 
-  const submitPasscode = useCallback(() => {
-    const result = evaluateHostedPasscodeAttempt({
-      passcode,
-      expected: configuredHostedPasscode(),
-      now: Date.now(),
-      state: attemptState,
-    });
+  const submitPasscode = useCallback(
+    async (rawPasscode = passcode) => {
+      const format = evaluatePasscodeFormat(rawPasscode);
+      if (!format.ok) {
+        setErrorMessage(format.message);
+        return;
+      }
 
-    if (result.ok) {
-      writePasscodeAttemptState(emptyPasscodeAttemptState());
-      setAttemptState(emptyPasscodeAttemptState());
+      const lockout = evaluateHostedPasscodeLockout({
+        now: Date.now(),
+        state: attemptState,
+      });
+      if (lockout) {
+        writePasscodeAttemptState(lockout.next);
+        setAttemptState(lockout.next);
+        setErrorMessage(formatLockoutMessage(lockout.remainingMs));
+        return;
+      }
+
+      setIsSubmitting(true);
       setErrorMessage("");
-      setPasscode("");
-      onUnlocked();
-      return;
-    }
-
-    if (result.kind === "invalid_format") {
-      setErrorMessage(result.message);
-      return;
-    }
-
-    writePasscodeAttemptState(result.next);
-    setAttemptState(result.next);
-    setErrorMessage(
-      result.kind === "locked" ? formatLockoutMessage(result.remainingMs) : result.message,
-    );
-  }, [attemptState, onUnlocked, passcode]);
+      try {
+        await onSubmit(rawPasscode.trim());
+        writePasscodeAttemptState(emptyPasscodeAttemptState());
+        setAttemptState(emptyPasscodeAttemptState());
+        setPasscode("");
+      } catch (error) {
+        const failure = recordHostedPasscodeFailure({
+          now: Date.now(),
+          state: attemptState,
+        });
+        writePasscodeAttemptState(failure.next);
+        setAttemptState(failure.next);
+        const backendMessage =
+          error instanceof Error
+            ? error.message.trim()
+            : typeof error === "string"
+              ? error.trim()
+              : "";
+        setErrorMessage(
+          failure.kind === "locked"
+            ? formatLockoutMessage(failure.remainingMs)
+            : backendMessage || failure.message,
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [attemptState, onSubmit, passcode],
+  );
 
   return (
     <AlertDialog open={open}>
@@ -86,14 +110,14 @@ export function PasscodeGateDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Authentication required</AlertDialogTitle>
           <AlertDialogDescription>
-            Enter the 6-digit passcode to unlock this browser.
+            Enter the 6-digit passcode. This browser will pair with your environment.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <form
           className="space-y-3 px-6 pb-2"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!locked) submitPasscode();
+            if (!locked && !isSubmitting) void submitPasscode();
           }}
         >
           <label className="text-sm font-medium" htmlFor="coda-passcode">
@@ -103,13 +127,17 @@ export function PasscodeGateDialog({
             id="coda-passcode"
             autoComplete="one-time-code"
             autoFocus
-            disabled={locked}
+            disabled={locked || isSubmitting}
             inputMode="numeric"
             maxLength={HOSTED_PASSCODE_LENGTH}
             nativeInput
-            onChange={(event) =>
-              setPasscode(event.currentTarget.value.replace(/\D/g, "").slice(0, HOSTED_PASSCODE_LENGTH))
-            }
+            onChange={(event) => {
+              const next = event.currentTarget.value.replace(/\D/g, "").slice(0, HOSTED_PASSCODE_LENGTH);
+              setPasscode(next);
+              if (!locked && !isSubmitting && next.length === HOSTED_PASSCODE_LENGTH) {
+                void submitPasscode(next);
+              }
+            }}
             pattern="\d{6}"
             placeholder="6-digit passcode"
             spellCheck={false}
@@ -127,8 +155,8 @@ export function PasscodeGateDialog({
           ) : null}
         </form>
         <AlertDialogFooter>
-          <Button disabled={locked} onClick={() => submitPasscode()}>
-            Continue
+          <Button disabled={locked || isSubmitting} onClick={() => void submitPasscode()}>
+            {isSubmitting ? "Pairing..." : "Continue"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogPopup>

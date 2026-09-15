@@ -1,7 +1,6 @@
 const PASSCODE_UNLOCK_KEY = "coda:hosted-passcode-unlocked";
 const PASSCODE_ATTEMPTS_KEY = "coda:hosted-passcode-attempts";
 
-export const DEFAULT_HOSTED_PASSCODE = "722110";
 export const HOSTED_PASSCODE_LENGTH = 6;
 export const HOSTED_PASSCODE_MAX_ATTEMPTS = 5;
 export const HOSTED_PASSCODE_LOCKOUT_MS = 30_000;
@@ -19,15 +18,6 @@ export type HostedPasscodeAttemptResult =
   | { ok: false; kind: "mismatch"; remainingAttempts: number; message: string; next: HostedPasscodeAttemptState }
   | { ok: false; kind: "locked"; remainingMs: number; message: string; next: HostedPasscodeAttemptState };
 
-export function resolveHostedPasscode(raw: string | undefined): string {
-  const trimmed = raw?.trim() ?? "";
-  return HOSTED_PASSCODE_PATTERN.test(trimmed) ? trimmed : DEFAULT_HOSTED_PASSCODE;
-}
-
-export function configuredHostedPasscode(): string {
-  return resolveHostedPasscode(import.meta.env.VITE_PAIRING_CODE);
-}
-
 export function emptyPasscodeAttemptState(): HostedPasscodeAttemptState {
   return { failures: 0, lockoutUntil: 0 };
 }
@@ -37,25 +27,8 @@ export function formatLockoutMessage(remainingMs: number): string {
   return `Too many incorrect attempts. Try again in ${seconds}s.`;
 }
 
-export function evaluateHostedPasscodeAttempt(input: {
-  readonly passcode: string;
-  readonly expected: string;
-  readonly now: number;
-  readonly state: HostedPasscodeAttemptState;
-}): HostedPasscodeAttemptResult {
-  if (input.state.lockoutUntil > input.now) {
-    const remainingMs = input.state.lockoutUntil - input.now;
-    return {
-      ok: false,
-      kind: "locked",
-      remainingMs,
-      message: formatLockoutMessage(remainingMs),
-      next: input.state,
-    };
-  }
-
-  const passcode = input.passcode.trim();
-  if (!HOSTED_PASSCODE_PATTERN.test(passcode)) {
+export function evaluatePasscodeFormat(passcode: string): HostedPasscodeAttemptResult {
+  if (!HOSTED_PASSCODE_PATTERN.test(passcode.trim())) {
     return {
       ok: false,
       kind: "invalid_format",
@@ -63,8 +36,34 @@ export function evaluateHostedPasscodeAttempt(input: {
     };
   }
 
-  if (passcode === input.expected) {
-    return { ok: true };
+  return { ok: true };
+}
+
+export function evaluateHostedPasscodeLockout(input: {
+  readonly now: number;
+  readonly state: HostedPasscodeAttemptState;
+}): Extract<HostedPasscodeAttemptResult, { ok: false; kind: "locked" }> | null {
+  if (input.state.lockoutUntil <= input.now) {
+    return null;
+  }
+
+  const remainingMs = input.state.lockoutUntil - input.now;
+  return {
+    ok: false,
+    kind: "locked",
+    remainingMs,
+    message: formatLockoutMessage(remainingMs),
+    next: input.state,
+  };
+}
+
+export function recordHostedPasscodeFailure(input: {
+  readonly now: number;
+  readonly state: HostedPasscodeAttemptState;
+}): Extract<HostedPasscodeAttemptResult, { ok: false; kind: "mismatch" | "locked" }> {
+  const lockout = evaluateHostedPasscodeLockout(input);
+  if (lockout) {
+    return lockout;
   }
 
   const failures = input.state.failures + 1;
@@ -80,13 +79,12 @@ export function evaluateHostedPasscodeAttempt(input: {
   }
 
   const remainingAttempts = HOSTED_PASSCODE_MAX_ATTEMPTS - failures;
-  const next = { failures, lockoutUntil: 0 };
   return {
     ok: false,
     kind: "mismatch",
     remainingAttempts,
     message: `Incorrect passcode. ${remainingAttempts} ${remainingAttempts === 1 ? "try" : "tries"} left.`,
-    next,
+    next: { failures, lockoutUntil: 0 },
   };
 }
 
@@ -117,13 +115,26 @@ function sessionStorageOrNull(): Storage | null {
   return sessionStorage;
 }
 
-export function readPasscodeUnlocked(storage: Pick<Storage, "getItem"> | null = sessionStorageOrNull()): boolean {
-  return readStorage(storage, PASSCODE_UNLOCK_KEY) === "1";
+function localStorageOrNull(): Storage | null {
+  if (typeof localStorage === "undefined") return null;
+  return localStorage;
+}
+
+export function readPasscodeUnlocked(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null = localStorageOrNull(),
+  fallback: Pick<Storage, "getItem"> | null = sessionStorageOrNull(),
+): boolean {
+  if (readStorage(storage, PASSCODE_UNLOCK_KEY) === "1") return true;
+  if (readStorage(fallback, PASSCODE_UNLOCK_KEY) === "1") {
+    writeStorage(storage ?? null, PASSCODE_UNLOCK_KEY, "1");
+    return true;
+  }
+  return false;
 }
 
 export function writePasscodeUnlocked(
   unlocked: boolean,
-  storage: Pick<Storage, "setItem" | "removeItem"> | null = sessionStorageOrNull(),
+  storage: Pick<Storage, "setItem" | "removeItem"> | null = localStorageOrNull() ?? sessionStorageOrNull(),
 ): void {
   writeStorage(storage, PASSCODE_UNLOCK_KEY, unlocked ? "1" : null);
 }

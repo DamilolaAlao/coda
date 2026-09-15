@@ -22,6 +22,7 @@ import { type ComposerImageAttachment, useComposerDraftStore } from "~/composerD
 import { previewAnnotationScreenshotFile } from "~/lib/previewAnnotation";
 import { ensureLocalApi } from "~/localApi";
 import {
+  applyPreviewDesktopState,
   rememberPreviewUrl,
   updatePreviewServerSnapshot,
   useThreadPreviewState,
@@ -50,6 +51,18 @@ import { revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
+import { WebPreviewFrame } from "~/browser/WebPreviewFrame";
+import {
+  EMPTY_WEB_PREVIEW_HISTORY,
+  recordWebPreviewVisit,
+  readWebPreviewHistory,
+  webPreviewBack,
+  webPreviewCanGoBack,
+  webPreviewCanGoForward,
+  webPreviewForward,
+  writeWebPreviewHistory,
+} from "~/browser/webPreviewHistory";
+import { isElectron } from "~/env";
 import { useLoadingProgress } from "./useLoadingProgress";
 import { usePreviewSession } from "./usePreviewSession";
 import { ZoomIndicator } from "./ZoomIndicator";
@@ -88,6 +101,10 @@ export function PreviewView({
 }: Props) {
   const [focusUrlNonce, setFocusUrlNonce] = useState<number | undefined>(undefined);
   const [pickActive, setPickActive] = useState(false);
+  const [webHistory, setWebHistory] = useState(EMPTY_WEB_PREVIEW_HISTORY);
+  const [iframeReloadEpoch, setIframeReloadEpoch] = useState(0);
+  const [webHistoryReady, setWebHistoryReady] = useState(false);
+  const skipWebHistoryRecordRef = useRef(false);
   const activeRecordingTabIds = useActiveBrowserRecordingTabIds();
   const pickActiveRef = useRef(false);
   const isMountedRef = useRef(true);
@@ -136,8 +153,12 @@ export function PreviewView({
   const navStatus = snapshot?.navStatus ?? { _tag: "Idle" as const };
   const url = navStatus._tag === "Idle" ? "" : navStatus.url;
   const loading = desktopOverlay?.loading ?? navStatus._tag === "Loading";
-  const canGoBack = desktopOverlay?.canGoBack ?? snapshot?.canGoBack ?? false;
-  const canGoForward = desktopOverlay?.canGoForward ?? snapshot?.canGoForward ?? false;
+  const canGoBack = isElectron
+    ? (desktopOverlay?.canGoBack ?? snapshot?.canGoBack ?? false)
+    : webPreviewCanGoBack(webHistory);
+  const canGoForward = isElectron
+    ? (desktopOverlay?.canGoForward ?? snapshot?.canGoForward ?? false)
+    : webPreviewCanGoForward(webHistory);
   const refreshDisabled = navStatus._tag === "Idle";
   const isUnreachable = navStatus._tag === "LoadFailed";
   const showEmptyState = shouldShowPreviewEmptyState(snapshot);
@@ -152,6 +173,40 @@ export function PreviewView({
   const navTitle = navStatus._tag === "Success" ? navStatus.title : null;
   const latestHistoryUrl = recentHistoryEntries[0]?.url;
   const threadKey = scopedThreadKey(threadRef);
+  useEffect(() => {
+    if (isElectron || !tabId) {
+      setWebHistoryReady(false);
+      return;
+    }
+    setWebHistory(readWebPreviewHistory(threadKey, tabId));
+    setWebHistoryReady(true);
+  }, [tabId, threadKey]);
+  useEffect(() => {
+    if (isElectron || !tabId || !webHistoryReady) return;
+    writeWebPreviewHistory(threadKey, tabId, webHistory);
+  }, [tabId, threadKey, webHistory, webHistoryReady]);
+  useEffect(() => {
+    if (isElectron || !url) return;
+    if (skipWebHistoryRecordRef.current) {
+      skipWebHistoryRecordRef.current = false;
+      return;
+    }
+    setWebHistory((current) => recordWebPreviewVisit(current, url));
+  }, [url]);
+  useEffect(() => {
+    if (isElectron || !tabId || !url) return;
+    applyPreviewDesktopState(threadRef, tabId, {
+      hasWebContents: true,
+      canGoBack: webPreviewCanGoBack(webHistory),
+      canGoForward: webPreviewCanGoForward(webHistory),
+      loading: true,
+      zoomFactor: 1,
+      pictureInPicture: false,
+      colorScheme: "system",
+      controller: "none",
+      favicon: null,
+    });
+  }, [iframeReloadEpoch, tabId, threadRef, url]);
   useEffect(() => {
     if (!navUrl || !navTitle || !latestHistoryUrl) return;
     // Agent-driven pages only enrich an existing requested URL.
@@ -202,8 +257,14 @@ export function PreviewView({
   );
 
   const handleRefresh = useCallback(() => {
-    if (previewBridge && runtimeTabId) void previewBridge.refresh(runtimeTabId);
-  }, [runtimeTabId]);
+    if (previewBridge && runtimeTabId) {
+      void previewBridge.refresh(runtimeTabId);
+      return;
+    }
+    if (!isElectron && url) {
+      setIframeReloadEpoch((epoch) => epoch + 1);
+    }
+  }, [runtimeTabId, url]);
 
   const handleZoomIn = useCallback(() => {
     if (previewBridge && runtimeTabId) void previewBridge.zoomIn(runtimeTabId);
@@ -263,12 +324,28 @@ export function PreviewView({
   }, [handleViewportChange, runtimeTabId]);
 
   const handleBack = useCallback(() => {
-    if (previewBridge && runtimeTabId) void previewBridge.goBack(runtimeTabId);
-  }, [runtimeTabId]);
+    if (previewBridge && runtimeTabId) {
+      void previewBridge.goBack(runtimeTabId);
+      return;
+    }
+    const previous = webPreviewBack(webHistory);
+    if (!previous) return;
+    skipWebHistoryRecordRef.current = true;
+    setWebHistory(previous.history);
+    void navigateToResolvedUrl(previous.url);
+  }, [navigateToResolvedUrl, runtimeTabId, webHistory]);
 
   const handleForward = useCallback(() => {
-    if (previewBridge && runtimeTabId) void previewBridge.goForward(runtimeTabId);
-  }, [runtimeTabId]);
+    if (previewBridge && runtimeTabId) {
+      void previewBridge.goForward(runtimeTabId);
+      return;
+    }
+    const next = webPreviewForward(webHistory);
+    if (!next) return;
+    skipWebHistoryRecordRef.current = true;
+    setWebHistory(next.history);
+    void navigateToResolvedUrl(next.url);
+  }, [navigateToResolvedUrl, runtimeTabId, webHistory]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!localApi || !url) return;
@@ -706,7 +783,40 @@ export function PreviewView({
             tabId={runtimeTabId}
             visible={visible && !isUnreachable}
             className="absolute inset-0 h-full w-full"
-          />
+          >
+            {!isElectron && url && !isUnreachable && tabId ? (
+              <WebPreviewFrame
+                reloadEpoch={iframeReloadEpoch}
+                src={url}
+                onLoad={() => {
+                  applyPreviewDesktopState(threadRef, tabId, {
+                    hasWebContents: true,
+                    canGoBack: webPreviewCanGoBack(webHistory),
+                    canGoForward: webPreviewCanGoForward(webHistory),
+                    loading: false,
+                    zoomFactor: 1,
+                    pictureInPicture: false,
+                    colorScheme: "system",
+                    controller: "none",
+                    favicon: null,
+                  });
+                }}
+                onError={() => {
+                  applyPreviewDesktopState(threadRef, tabId, {
+                    hasWebContents: false,
+                    canGoBack: webPreviewCanGoBack(webHistory),
+                    canGoForward: webPreviewCanGoForward(webHistory),
+                    loading: false,
+                    zoomFactor: 1,
+                    pictureInPicture: false,
+                    colorScheme: "system",
+                    controller: "none",
+                    favicon: null,
+                  });
+                }}
+              />
+            ) : null}
+          </BrowserSurfaceSlot>
         ) : null}
         {showEmptyState ? (
           <PreviewEmptyState

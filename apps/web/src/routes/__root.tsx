@@ -20,6 +20,8 @@ import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstall
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { PasscodeGateDialog } from "../components/auth/PasscodeGateDialog";
 import { readPasscodeUnlocked, writePasscodeUnlocked } from "../passcodeGate";
+import { connectPairing } from "../connection/onboarding";
+import { configuredPairingUrl, hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -42,7 +44,6 @@ import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
 import { resolveInitialServerAuthGateState } from "../environments/primary";
-import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { shellEnvironment } from "../state/shell";
 import { useAtomValue } from "@effect/atom-react";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -139,9 +140,8 @@ function RootRouteView() {
         <ConnectOnboardingDialog />
         <SshPasswordPromptDialog />
         <ConfirmDialogHost />
-        <PasscodeGateHost />
+        <HostedAccessControllers />
         <SlowRpcRequestToastCoordinator />
-        <HostedStaticEnvironmentBootstrap />
         {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
         {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
         {appShell}
@@ -212,22 +212,46 @@ function DocumentTitleSync() {
   return null;
 }
 
-function PasscodeGateHost() {
+function HostedAccessControllers() {
+  const [unlocked, setUnlocked] = useState(() => readPasscodeUnlocked());
+  const { environments } = useEnvironments();
+  const alreadyPaired = environments.length > 0;
+  const connectPairingEnvironment = useAtomCommand(connectPairing, { reportFailure: false });
+
+  return (
+    <>
+      <PasscodeGateHost
+        unlocked={unlocked || alreadyPaired}
+        onSubmit={async (passcode) => {
+          const result = await connectPairingEnvironment({
+            host: configuredPairingUrl(),
+            pairingCode: passcode,
+          });
+          if (result._tag !== "Success") {
+            throw squashAtomCommandFailure(result);
+          }
+          writePasscodeUnlocked(true);
+          setUnlocked(true);
+        }}
+      />
+      <HostedStaticEnvironmentBootstrap />
+    </>
+  );
+}
+
+function PasscodeGateHost({
+  unlocked,
+  onSubmit,
+}: {
+  readonly unlocked: boolean;
+  readonly onSubmit: (passcode: string) => Promise<void>;
+}) {
   const pathname = useLocation({ select: (location) => location.pathname });
   const hosted = isHostedStaticApp(new URL(window.location.href));
   const pairingRoute =
     pathname === "/pair" || pathname === "/connect" || pathname.startsWith("/connect/");
-  const [unlocked, setUnlocked] = useState(() => readPasscodeUnlocked());
 
-  return (
-    <PasscodeGateDialog
-      open={hosted && !pairingRoute && !unlocked}
-      onUnlocked={() => {
-        writePasscodeUnlocked(true);
-        setUnlocked(true);
-      }}
-    />
-  );
+  return <PasscodeGateDialog open={hosted && !pairingRoute && !unlocked} onSubmit={onSubmit} />;
 }
 
 function HostedStaticEnvironmentBootstrap() {

@@ -13,7 +13,6 @@ import pkg from "./package.json" with { type: "json" };
 import { DEV_PROXIED_PATH_PREFIXES } from "@t3tools/shared/devProxy";
 
 import { resolvePairingUrl } from "./src/hostedPairing";
-import { resolveHostedPasscode } from "./src/passcodeGate";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 
 const repoEnv = loadRepoEnv();
@@ -210,9 +209,6 @@ export default defineConfig(() => {
       "import.meta.env.VITE_HOSTED_APP_CHANNEL": JSON.stringify(configuredHostedAppChannel),
       "import.meta.env.VITE_DEFAULT_ENVIRONMENT_URL": JSON.stringify(configuredPairingUrl),
       "import.meta.env.VITE_PAIRING_URL": JSON.stringify(configuredPairingUrl),
-      "import.meta.env.VITE_PAIRING_CODE": JSON.stringify(
-        resolveHostedPasscode(process.env.VITE_PAIRING_CODE ?? process.env.CODA_PAIRING_CODE),
-      ),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
     },
     resolve: {

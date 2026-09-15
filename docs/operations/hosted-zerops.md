@@ -1,38 +1,46 @@
-# Hosted T3 server (Zerops)
+# Hosted Coda (Zerops)
 
 > For maintainers. Using Coda? See [docs/user](../user/).
 
-This fork's hosted backend lives on Zerops (`coda` / `app`). The web UI is Vercel; the server
-process must have the `hermes` CLI on `PATH` because T3 only wraps provider binaries.
+This fork's hosted Docker image lives on Zerops (`coda` / `stack`):
+the T3 server plus the built web client (`dist/client`). Hermes is installed in the image
+because T3 only wraps provider binaries.
 
 ## Layout
 
 [`deploy/zerops/`](../../deploy/zerops/) is the push directory. It is **not** the git monorepo
-root: the T3 server is a `vp pack` bundle copied in as `dist/`.
+root.
 
 | File | Role |
 | --- | --- |
-| `package.json` | `node dist/bin.mjs serve` plus native deps (`@ff-labs/fff-node`, `node-pty`) |
-| `install-hermes.sh` | Non-interactive Hermes install into `vendor/`, ACP extra, OpenCode Go `config.yaml` |
-| `hermes-wrapper.sh` | Relocatable `bin/hermes` (rewrites uv venv paths from `/build/source` to the unpack root) |
-| `start.sh` | Puts `bin/` on `PATH` and starts T3 |
-| `zerops.yml` | Build + runtime recipe |
+| `Dockerfile` | Single image: Node 24, native addons, Hermes, `serve` on 3773 |
+| `package.json` | Runtime deps (`@ff-labs/fff-node`, `node-pty`) |
+| `install-hermes.sh` | Non-interactive Hermes install into `vendor/` |
+| `hermes-wrapper.sh` | Relocatable `bin/hermes` |
+| `run.sh` | Zerops start: `docker build` + `docker run --network=host` |
+| `zerops.yml` | Build copies the context; runtime `docker build` + `docker run --network=host` |
+| `pack.sh` | Bundles server + web dist into a push directory |
 
 ## Push
 
 From a clean checkout:
 
 ```bash
-vp run --filter t3 build:bundle
-rm -rf /tmp/coda-zerops
-mkdir -p /tmp/coda-zerops
-cp -R deploy/zerops/. /tmp/coda-zerops/
-rsync -a --include='*.mjs' --exclude='*.map' --exclude='*' apps/server/dist/ /tmp/coda-zerops/dist/
-zcli service push app -P <project-id> --working-dir /tmp/coda-zerops --no-git
+chmod +x deploy/zerops/pack.sh
+deploy/zerops/pack.sh /tmp/coda-zerops
+zcli service push stack -P <project-id> --working-dir /tmp/coda-zerops --no-git
 ```
 
-Do not set a `PATH` env var in `zerops.yml`; Zerops reserves that key. `start.sh` prefixes `bin/`
-instead.
+`pack.sh` stamps the image tag with the current git short SHA so Zerops rebuilds on each push.
+
+Do not set a `PATH` env var in `zerops.yml`; Zerops reserves that key.
 
 Hermes auth is still an OpenCode Go API key in T3 Settings (or `OPENCODE_GO_API_KEY` in Hermes's
 `.env`). The installer only writes `model.provider: opencode-go`.
+
+## Persistence
+
+`T3CODE_HOME` is `/data` inside the container. `run.sh` bind-mounts host `/var/data`
+(not `/var/www/data`) so pairing keys, SQLite, and preview tabs survive Zerops extracts
+into `/var/www`. An existing `/var/www/data` tree is copied once if `/var/data/userdata`
+is missing.

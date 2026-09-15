@@ -328,7 +328,7 @@ const TerminalLayerLive = TerminalManager.layer.pipe(
 );
 
 const PreviewLayerLive = Layer.empty.pipe(
-  Layer.provideMerge(PreviewManager.layer),
+  Layer.provideMerge(PreviewManager.persistedLayer),
   Layer.provideMerge(PortScannerLayerLive),
 );
 

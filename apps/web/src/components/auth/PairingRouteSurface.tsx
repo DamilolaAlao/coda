@@ -118,17 +118,27 @@ export function PairingRouteSurface({
         <form className="mt-6 space-y-4" onSubmit={(event) => void handleSubmit(event)}>
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="pairing-token">
-              Pairing token
+              Passcode
             </label>
             <Input
               id="pairing-token"
               autoCapitalize="none"
-              autoComplete="off"
+              autoComplete="one-time-code"
               autoCorrect="off"
               disabled={isSubmitting}
               nativeInput
-              onChange={(event) => setCredential(event.currentTarget.value)}
-              placeholder="Paste the pairing token"
+              inputMode="numeric"
+              maxLength={6}
+              onChange={(event) => {
+                const next = event.currentTarget.value.replace(/\D/g, "").slice(0, 6);
+                setCredential(next);
+                if (/^\d{6}$/.test(next)) {
+                  void submitCredential(next);
+                }
+              }}
+              pattern="\d{6}"
+              placeholder="6-digit passcode"
+              type="password"
               spellCheck={false}
               value={credential}
             />
@@ -304,7 +314,7 @@ function describeAuthGate(bootstrapMethods: ReadonlyArray<string>): string {
     return "This environment expects a trusted pairing credential before the app can connect.";
   }
 
-  return "Enter a pairing token to start a session with this environment.";
+  return "Enter the 6-digit passcode for this environment.";
 }
 
 function describeSupportedMethods(bootstrapMethods: ReadonlyArray<string>): string {
@@ -319,5 +329,5 @@ function describeSupportedMethods(bootstrapMethods: ReadonlyArray<string>): stri
     return "This environment is desktop-managed. Open it from the desktop app or paste a bootstrap credential if one was issued explicitly.";
   }
 
-  return "This environment accepts one-time pairing tokens. Pairing links can open this page directly, or you can paste the token here.";
+  return "This environment accepts a 6-digit passcode. The server checks it and issues a session.";
 }
