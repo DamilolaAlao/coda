@@ -183,3 +183,4 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(GitHubCredentialStore, make);
+export const layerLive = layer.pipe(Layer.provide(ServerSecretStore.layer));

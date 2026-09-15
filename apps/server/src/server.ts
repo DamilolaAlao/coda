@@ -279,7 +279,7 @@ const SourceControlProviderRegistryLayerLive = SourceControlProviderRegistry.lay
   ),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(VcsDriverRegistryLayerLive),
-  Layer.provideMerge(GitHubCredentialStore.layer),
+  Layer.provideMerge(GitHubCredentialStore.layerLive),
 );
 
 const GitManagerLayerLive = GitManager.layer.pipe(
@@ -415,8 +415,8 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ServerEnvironment.layer),
   Layer.provideMerge(AuthLayerLive),
   Layer.provideMerge(ServerSecretStore.layer),
-  Layer.provideMerge(GitHubCredentialStore.layer),
-  Layer.provideMerge(GitHubOAuth.layer.pipe(Layer.provide(GitHubCredentialStore.layer))),
+  Layer.provideMerge(GitHubCredentialStore.layerLive),
+  Layer.provideMerge(GitHubOAuth.layer.pipe(Layer.provide(GitHubCredentialStore.layerLive))),
   Layer.provideMerge(
     Layer.mergeAll(
       CloudCliTokenManager.layer.pipe(

@@ -2395,7 +2395,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
                           BitbucketApi.layer,
                           GitHubCli.layer,
                           GitLabCli.layer,
-                        ).pipe(Layer.provideMerge(GitHubCredentialStore.layer)),
+                        ).pipe(Layer.provideMerge(GitHubCredentialStore.layerLive)),
                       ),
                       Layer.provideMerge(GitVcsDriver.layer),
                       Layer.provide(
@@ -2406,7 +2406,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
                   Layer.provide(VcsProcess.layer),
                 ),
               ),
-              Layer.provide(GitHubOAuth.layer.pipe(Layer.provide(GitHubCredentialStore.layer))),
+              Layer.provide(GitHubOAuth.layer.pipe(Layer.provide(GitHubCredentialStore.layerLive))),
             ),
           ),
         );
