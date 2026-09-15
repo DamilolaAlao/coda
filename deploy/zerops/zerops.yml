@@ -29,8 +29,9 @@ zerops:
       prepareCommands:
         - sudo apt-get update
         - sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-venv make g++ curl git ca-certificates
-        - npm i --omit=dev --ignore-scripts=false
-        - npm rebuild node-pty --foreground-scripts || true
+        - npm i --prefix /home/zerops --omit=dev --ignore-scripts=false
+        - test -d /home/zerops/node_modules/@ff-labs/fff-node
+        - npm rebuild node-pty --prefix /home/zerops --foreground-scripts || true
         - chmod +x install-hermes.sh hermes-wrapper.sh
         - ./install-hermes.sh
       ports:
@@ -41,10 +42,10 @@ zerops:
         IMAGE_TAG: __IMAGE_TAG__
         T3CODE_HOST: 0.0.0.0
         T3CODE_PORT: "3773"
-        T3CODE_HOME: /home/zerops/t3-home
-        T3CODE_PUBLIC_URL: https://stack-3069-3773.prg1.zerops.app
-        # Runtime secret only. Do not bake this into the image or web bundle.
-        T3CODE_PAIRING_CODE: "722110"
+        T3CODE_HOME: /home/zerops/.t3
+        HOME: /home/zerops/coda
+        CODA_DEPLOYMENTS_HOME: /home/zerops/deployments
+        T3CODE_PUBLIC_URL: __T3CODE_PUBLIC_URL__
+        T3CODE_PAIRING_CODE: "__T3CODE_PAIRING_CODE__"
         HERMES_HOME: /home/zerops/vendor/hermes-home
-        NODE_PATH: /home/zerops/node_modules
       start: /bin/sh /var/www/start.sh

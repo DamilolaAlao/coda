@@ -58,6 +58,7 @@ import {
   terminalSessionsTotal,
 } from "../observability/Metrics.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import { scrubHostRuntimeEnv } from "../process/hostRuntimeEnv.ts";
 import * as PortScanner from "../preview/PortScanner.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
 
@@ -81,7 +82,6 @@ const DEFAULT_PROCESS_KILL_GRACE_MS = 1_000;
 const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = 128;
 const DEFAULT_OPEN_COLS = 120;
 const DEFAULT_OPEN_ROWS = 30;
-const TERMINAL_ENV_BLOCKLIST = new Set(["PORT", "ELECTRON_RENDERER_PORT", "ELECTRON_RUN_AS_NODE"]);
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const MAX_TERMINAL_LABEL_LENGTH = 128;
 
@@ -1014,17 +1014,6 @@ function toSessionKey(threadId: string, terminalId: string): string {
   return `${threadId}\u0000${terminalId}`;
 }
 
-function shouldExcludeTerminalEnvKey(key: string): boolean {
-  const normalizedKey = key.toUpperCase();
-  if (normalizedKey.startsWith("T3CODE_")) {
-    return true;
-  }
-  if (normalizedKey.startsWith("VITE_")) {
-    return true;
-  }
-  return TERMINAL_ENV_BLOCKLIST.has(normalizedKey);
-}
-
 // Marker variables the AppImage runtime injects into the process it launches.
 // They describe the AppImage itself, not the user's session, so terminals must
 // not inherit them.
@@ -1085,12 +1074,7 @@ function createTerminalSpawnEnv(
   baseEnv: NodeJS.ProcessEnv,
   runtimeEnv?: Record<string, string> | null,
 ): NodeJS.ProcessEnv {
-  const spawnEnv: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(baseEnv)) {
-    if (value === undefined) continue;
-    if (shouldExcludeTerminalEnvKey(key)) continue;
-    spawnEnv[key] = value;
-  }
+  const spawnEnv = scrubHostRuntimeEnv(baseEnv);
   if (runtimeEnv) {
     for (const [key, value] of Object.entries(runtimeEnv)) {
       spawnEnv[key] = value;

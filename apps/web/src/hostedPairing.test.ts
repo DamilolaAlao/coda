@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildHostedChannelSelectionUrl,
   buildHostedPairingUrl,
-  DEFAULT_PAIRING_URL,
   hasHostedPairingRequest,
   isHostedStaticApp,
   readHostedPairingRequest,
@@ -15,10 +14,10 @@ describe("hostedPairing", () => {
     vi.unstubAllEnvs();
   });
 
-  it("uses a valid env pairing URL and falls back to the default", () => {
-    expect(resolvePairingUrl(undefined)).toBe(DEFAULT_PAIRING_URL);
-    expect(resolvePairingUrl("")).toBe(DEFAULT_PAIRING_URL);
-    expect(resolvePairingUrl("ftp://backend.example.com")).toBe(DEFAULT_PAIRING_URL);
+  it("uses a valid env pairing URL and otherwise stays empty", () => {
+    expect(resolvePairingUrl(undefined)).toBe("");
+    expect(resolvePairingUrl("")).toBe("");
+    expect(resolvePairingUrl("ftp://backend.example.com")).toBe("");
     expect(resolvePairingUrl("https://backend.example.com:3773/pair#token=x")).toBe(
       "https://backend.example.com:3773",
     );
@@ -72,10 +71,12 @@ describe("hostedPairing", () => {
     expect(url.searchParams.has("next")).toBe(false);
   });
 
-  it("fills a missing hosted pairing host from the default pairing URL", () => {
+  it("fills a missing hosted pairing host from the configured pairing URL", () => {
+    vi.stubEnv("VITE_PAIRING_URL", "https://backend.example.com:3773");
+
     expect(readHostedPairingRequest(new URL("https://app.t3.codes/pair#token=ABCD1234"))).toEqual(
       {
-        host: DEFAULT_PAIRING_URL,
+        host: "https://backend.example.com:3773",
         token: "ABCD1234",
         label: "",
       },

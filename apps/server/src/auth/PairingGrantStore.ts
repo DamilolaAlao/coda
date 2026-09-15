@@ -264,7 +264,6 @@ const DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES = Duration.minutes(5);
 const DESKTOP_BOOTSTRAP_TTL_HOURS = Duration.hours(24);
 const PASSCODE_BOOTSTRAP_TTL = Duration.days(365);
 const PASSCODE_PATTERN = /^\d{6}$/;
-const DEFAULT_PAIRING_PASSCODE = "722110";
 const PASSCODE_MAX_ATTEMPTS = 5;
 const PASSCODE_LOCKOUT = Duration.seconds(30);
 // A dev server's startup token is read off a log by whoever (or whatever) is
@@ -354,17 +353,25 @@ export const make = Effect.gen(function* () {
     });
   }
 
-  const configuredPasscode = Option.getOrElse(
+  const configuredPasscode = Option.match(
     yield* Config.string("T3CODE_PAIRING_CODE").pipe(Config.option),
-    () => DEFAULT_PAIRING_PASSCODE,
-  ).trim();
-  const pairingPasscodeBytes = Buffer.from(
-    PASSCODE_PATTERN.test(configuredPasscode) ? configuredPasscode : DEFAULT_PAIRING_PASSCODE,
-    "utf8",
+    {
+      onNone: () => undefined,
+      onSome: (value) => {
+        const trimmed = value.trim();
+        return PASSCODE_PATTERN.test(trimmed) ? trimmed : undefined;
+      },
+    },
   );
+  const pairingPasscodeBytes =
+    configuredPasscode === undefined ? undefined : Buffer.from(configuredPasscode, "utf8");
 
   const consumeConfiguredPasscode = (credential: string) =>
     Effect.gen(function* () {
+      const expected = pairingPasscodeBytes;
+      if (expected === undefined) {
+        return yield* new UnknownBootstrapCredentialError({});
+      }
       const now = yield* DateTime.now;
       const presented = Buffer.from(credential, "utf8");
       const outcome = yield* Ref.modify(passcodeGateRef, (state) => {
@@ -373,8 +380,8 @@ export const make = Effect.gen(function* () {
         }
 
         const matches =
-          presented.length === pairingPasscodeBytes.length &&
-          NodeCrypto.timingSafeEqual(presented, pairingPasscodeBytes);
+          presented.length === expected.length &&
+          NodeCrypto.timingSafeEqual(presented, expected);
 
         if (matches) {
           return [{ _tag: "ok" as const }, { failures: 0, lockoutUntil: null }];
@@ -526,7 +533,7 @@ export const make = Effect.gen(function* () {
   const consume: PairingGrantStore["Service"]["consume"] = Effect.fn("PairingGrantStore.consume")(
     function* (credential, input) {
       const trimmed = credential.trim();
-      if (PASSCODE_PATTERN.test(trimmed)) {
+      if (pairingPasscodeBytes !== undefined && PASSCODE_PATTERN.test(trimmed)) {
         return yield* consumeConfiguredPasscode(trimmed);
       }
 

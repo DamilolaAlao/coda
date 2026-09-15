@@ -85,6 +85,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Source control integrations](./docs/user/source-control.md)
 - Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
 - Linux: [run Coda as a background service](./docs/user/background-service.md)
+- Self-host on Zerops: [hosted stack](./docs/operations/hosted-zerops.md)
 
 Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
 

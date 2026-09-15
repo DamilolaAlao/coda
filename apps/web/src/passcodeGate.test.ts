@@ -15,7 +15,7 @@ import {
 
 describe("hosted passcode gate", () => {
   it("accepts only a 6-digit passcode format", () => {
-    expect(evaluatePasscodeFormat("722110")).toEqual({ ok: true });
+    expect(evaluatePasscodeFormat("123456")).toEqual({ ok: true });
     expect(evaluatePasscodeFormat(" 111222 ")).toEqual({ ok: true });
     expect(evaluatePasscodeFormat("abc123")).toMatchObject({ ok: false, kind: "invalid_format" });
     expect(evaluatePasscodeFormat("eyJhbGciOiJIUzI1NiJ9.e30.signature")).toMatchObject({

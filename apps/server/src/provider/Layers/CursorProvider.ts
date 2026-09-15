@@ -29,6 +29,7 @@ import {
   getProviderOptionStringSelectionValue,
 } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import { childProcessEnvironment } from "../../process/hostRuntimeEnv.ts";
 
 import {
   buildBooleanOptionDescriptor,
@@ -948,13 +949,15 @@ const runCursorCommand = (
 ) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const spawnEnv = childProcessEnvironment(environment);
     const spawnCommand = yield* resolveSpawnCommand(
       cursorSettings.binaryPath,
       args,
-      environment ? { env: environment } : {},
+      { env: spawnEnv, extendEnv: false },
     );
     const command = ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-      ...(environment ? { env: environment } : { extendEnv: true }),
+      env: spawnEnv,
+      extendEnv: false,
       shell: spawnCommand.shell,
     });
 

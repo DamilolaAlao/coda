@@ -20,7 +20,19 @@ cp "$ROOT/deploy/zerops/hermes-wrapper.sh" "$OUT/"
 cp "$ROOT/deploy/zerops/start.sh" "$OUT/"
 cp "$ROOT/deploy/zerops/run.sh" "$OUT/"
 IMAGE_TAG="$(git -C "$ROOT" rev-parse --short HEAD)"
-sed "s/__IMAGE_TAG__/${IMAGE_TAG}/g" "$ROOT/deploy/zerops/zerops.yml" > "$OUT/zerops.yml"
+if [ -f "$ROOT/deploy/zerops/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT/deploy/zerops/.env"
+  set +a
+fi
+PUBLIC_URL="${T3CODE_PUBLIC_URL:-}"
+PAIRING_CODE="${T3CODE_PAIRING_CODE:-}"
+sed \
+  -e "s|__IMAGE_TAG__|${IMAGE_TAG}|g" \
+  -e "s|__T3CODE_PUBLIC_URL__|${PUBLIC_URL}|g" \
+  -e "s|__T3CODE_PAIRING_CODE__|${PAIRING_CODE}|g" \
+  "$ROOT/deploy/zerops/zerops.yml" > "$OUT/zerops.yml"
 chmod +x "$OUT/install-hermes.sh" "$OUT/hermes-wrapper.sh" "$OUT/start.sh" "$OUT/run.sh"
 
 rsync -a --include='*.mjs' --exclude='*.map' --exclude='*' "$ROOT/apps/server/dist/" "$OUT/dist/"

@@ -18,4 +18,16 @@ describe("mergeProviderInstanceEnvironment", () => {
       PATH: "/bin",
     });
   });
+
+  it("scrubs host runtime secrets even when no instance overlay is set", () => {
+    expect(
+      mergeProviderInstanceEnvironment(undefined, {
+        PATH: "/bin",
+        T3CODE_HOME: "/home/zerops/.t3",
+        ZEROPS_TOKEN: "secret",
+      }),
+    ).toEqual({
+      PATH: "/bin",
+    });
+  });
 });

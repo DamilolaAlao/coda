@@ -34,6 +34,7 @@ import { collectStreamAsString } from "./providerSnapshot.ts";
 import * as NetService from "@t3tools/shared/Net";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import { childProcessEnvironment } from "../process/hostRuntimeEnv.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const OPENCODE_EMPTY_CONFIG_CONTENT = "{}";
 
@@ -398,7 +399,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
   const netService = yield* NetService.NetService;
   const hostPlatform = yield* HostProcessPlatform;
   const resolveCommand = (command: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv) =>
-    resolveSpawnCommand(command, args, env ? { env } : {});
+    resolveSpawnCommand(command, args, { env: childProcessEnvironment(env), extendEnv: false });
 
   const runOpenCodeCommand: OpenCodeRuntimeShape["runOpenCodeCommand"] = (input) =>
     Effect.gen(function* () {
@@ -406,7 +407,8 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       const child = yield* spawner.spawn(
         ChildProcess.make(spawnCommand.command, spawnCommand.args, {
           shell: spawnCommand.shell,
-          ...(input.environment ? { env: input.environment } : { extendEnv: true }),
+          env: childProcessEnvironment(input.environment),
+          extendEnv: false,
         }),
       );
       const [stdout, stderr, code] = yield* Effect.all(
@@ -465,11 +467,11 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
           ChildProcess.make(spawnCommand.command, spawnCommand.args, {
             detached: hostPlatform !== "win32",
             shell: spawnCommand.shell,
-            env: {
+            env: childProcessEnvironment({
               ...input.environment,
               OPENCODE_CONFIG_CONTENT: OPENCODE_EMPTY_CONFIG_CONTENT,
-            },
-            extendEnv: input.environment === undefined,
+            }),
+            extendEnv: false,
           }),
         )
         .pipe(

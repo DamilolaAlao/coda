@@ -10,11 +10,9 @@ export interface HostedPairingRequest {
 
 export type HostedAppChannel = "latest" | "nightly";
 
-export const DEFAULT_PAIRING_URL = "https://stack-3069-3773.prg1.zerops.app";
-
 export function resolvePairingUrl(raw: string | undefined): string {
   const trimmed = raw?.trim() ?? "";
-  if (!trimmed) return DEFAULT_PAIRING_URL;
+  if (!trimmed) return "";
 
   const candidates = /^[a-zA-Z][a-zA-Z\d+-]*:\/\//.test(trimmed) ? [trimmed] : [`https://${trimmed}`];
   for (const candidate of candidates) {
@@ -28,13 +26,18 @@ export function resolvePairingUrl(raw: string | undefined): string {
     }
   }
 
-  return DEFAULT_PAIRING_URL;
+  return "";
 }
 
 export function configuredPairingUrl(): string {
-  return resolvePairingUrl(
+  const configured = resolvePairingUrl(
     import.meta.env.VITE_PAIRING_URL || import.meta.env.VITE_DEFAULT_ENVIRONMENT_URL,
   );
+  if (configured) return configured;
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return "";
 }
 
 export function configuredHostedAppUrl(): string {
