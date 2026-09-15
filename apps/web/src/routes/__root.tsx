@@ -19,6 +19,7 @@ import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDi
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { PasscodeGateDialog } from "../components/auth/PasscodeGateDialog";
+import { GitHubAuthGateDialog } from "../components/auth/GitHubAuthGateDialog";
 import { readPasscodeUnlocked, writePasscodeUnlocked } from "../passcodeGate";
 import { connectPairing } from "../connection/onboarding";
 import { configuredPairingUrl, hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
@@ -49,6 +50,12 @@ import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomValue } from "@effect/atom-react";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
+import { useEnvironmentQuery } from "../state/query";
+import {
+  isManagedGitHubConnected,
+  openGitHubAuthorizePopup,
+  shouldShowHostedGitHubAuthGate,
+} from "../components/settings/SourceControlSettings.logic";
 import {
   primaryServerConfigAtom,
   primaryServerConfigEventAtom,
@@ -217,15 +224,13 @@ function HostedAccessControllers() {
   const [unlocked, setUnlocked] = useState(() => readPasscodeUnlocked());
   const { environments } = useEnvironments();
   const alreadyPaired = environments.length > 0;
+  const passcodeUnlocked = unlocked || alreadyPaired;
   const connectPairingEnvironment = useAtomCommand(connectPairing, { reportFailure: false });
-  const startGitHubOAuth = useAtomCommand(sourceControlEnvironment.startGitHubOAuth, {
-    reportFailure: false,
-  });
 
   return (
     <>
       <PasscodeGateHost
-        unlocked={unlocked || alreadyPaired}
+        unlocked={passcodeUnlocked}
         onSubmit={async (passcode) => {
           const result = await connectPairingEnvironment({
             host: configuredPairingUrl(),
@@ -236,17 +241,88 @@ function HostedAccessControllers() {
           }
           writePasscodeUnlocked(true);
           setUnlocked(true);
-          const oauth = await startGitHubOAuth({
-            environmentId: result.value,
-            input: {},
-          });
-          if (oauth._tag === "Success") {
-            window.location.assign(oauth.value.authorizeUrl);
-          }
         }}
       />
+      <HostedGitHubAuthGate />
       <HostedStaticEnvironmentBootstrap />
     </>
+  );
+}
+
+function HostedGitHubAuthGate() {
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const pairingRoute =
+    pathname === "/pair" || pathname === "/connect" || pathname.startsWith("/connect/");
+  const unlocked = readPasscodeUnlocked();
+  const { environments } = useEnvironments();
+  const primaryEnvironment = usePrimaryEnvironment();
+  const environment =
+    (primaryEnvironment?.connection.phase === "connected" ? primaryEnvironment : null) ??
+    environments.find((entry) => entry.connection.phase === "connected") ??
+    primaryEnvironment ??
+    null;
+  const startGitHubOAuth = useAtomCommand(sourceControlEnvironment.startGitHubOAuth, {
+    reportFailure: false,
+  });
+  const discovery = useEnvironmentQuery(
+    environment === null
+      ? null
+      : sourceControlEnvironment.discovery({
+          environmentId: environment.environmentId,
+          input: {},
+        }),
+  );
+  const github = discovery.data?.sourceControlProviders.find((provider) => provider.kind === "github");
+  const githubConnected =
+    discovery.data == null && discovery.error === null
+      ? null
+      : isManagedGitHubConnected(github?.auth);
+  const managedOAuthAvailable =
+    discovery.data == null && discovery.error === null
+      ? null
+      : (github?.auth.managedOAuthAvailable ?? false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const onConnect = async () => {
+    if (environment === null) return;
+    setIsConnecting(true);
+    setErrorMessage("");
+    try {
+      const started = await startGitHubOAuth({
+        environmentId: environment.environmentId,
+        input: {},
+      });
+      if (started._tag !== "Success") {
+        throw squashAtomCommandFailure(started);
+      }
+      const result = await openGitHubAuthorizePopup(started.value.authorizeUrl);
+      if (result !== "failed") discovery.refresh();
+      if (result === "failed") {
+        setErrorMessage("GitHub sign-in did not complete. Try again.");
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Could not start GitHub sign-in.",
+      );
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  return (
+    <GitHubAuthGateDialog
+      open={shouldShowHostedGitHubAuthGate({
+        pairingRoute,
+        unlocked,
+        githubConnected,
+        managedOAuthAvailable,
+      })}
+      isConnecting={isConnecting}
+      environmentReady={environment !== null}
+      errorMessage={errorMessage}
+      onConnect={() => void onConnect()}
+    />
   );
 }
 

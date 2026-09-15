@@ -10,6 +10,7 @@ import {
   submitServerAuthCredential,
 } from "../../environments/primary";
 import { readHostedPairingRequest } from "../../hostedPairing";
+import { writePasscodeUnlocked } from "../../passcodeGate";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -68,6 +69,10 @@ export function PairingRouteSurface({
       if (submitError) {
         setErrorMessage(submitError);
         return;
+      }
+
+      if (/^\d{6}$/.test(nextCredential.trim())) {
+        writePasscodeUnlocked(true);
       }
 
       startTransition(() => {

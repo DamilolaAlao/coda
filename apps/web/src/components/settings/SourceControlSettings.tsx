@@ -30,7 +30,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import {
   canDisconnectManagedGitHub,
   githubAuthSourceLabel,
-  parseGitHubOAuthCompletionMessage,
+  openGitHubAuthorizePopup,
 } from "./SourceControlSettings.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -264,9 +264,11 @@ function itemSummary({
 
 function DiscoveryItemRow({
   item,
+  actions,
   children,
 }: {
   readonly item: VcsDiscoveryItem | SourceControlProviderDiscoveryItem;
+  readonly actions?: ReactNode;
   readonly children?: ReactNode;
 }) {
   const version = optionLabel(item.version);
@@ -311,6 +313,7 @@ function DiscoveryItemRow({
             </p>
           </div>
           <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+            {actions}
             {hasDetails ? (
               <Button
                 size="compact"
@@ -340,35 +343,6 @@ function DiscoveryItemRow({
       ) : null}
     </div>
   );
-}
-
-const GITHUB_OAUTH_POPUP_NAME = "t3-github-oauth";
-
-function openGitHubAuthorizePopup(authorizeUrl: string) {
-  return new Promise<"connected" | "failed" | "dismissed">((resolve) => {
-    const popup = window.open(authorizeUrl, GITHUB_OAUTH_POPUP_NAME, "popup=yes,width=600,height=760");
-    if (popup === null) {
-      window.location.assign(authorizeUrl);
-      return;
-    }
-    const onMessage = (event: MessageEvent) => {
-      const result = parseGitHubOAuthCompletionMessage(event.data);
-      if (result === null) return;
-      cleanup();
-      resolve(result);
-    };
-    const timer = window.setInterval(() => {
-      if (popup.closed) {
-        cleanup();
-        resolve("dismissed");
-      }
-    }, 400);
-    const cleanup = () => {
-      window.removeEventListener("message", onMessage);
-      window.clearInterval(timer);
-    };
-    window.addEventListener("message", onMessage);
-  });
 }
 
 function GitHubAuthActions({
@@ -665,15 +639,19 @@ export function SourceControlSettingsPanel() {
               headerAction={hasVersionControlSystems ? null : scanButton}
             >
               {result.sourceControlProviders.map((item) => (
-                <DiscoveryItemRow key={`provider:${item.kind}`} item={item}>
-                  {item.kind === "github" && item.status === "available" && environmentId !== null ? (
-                    <GitHubAuthActions
-                      item={item}
-                      environmentId={environmentId}
-                      onScan={handleScan}
-                    />
-                  ) : undefined}
-                </DiscoveryItemRow>
+                <DiscoveryItemRow
+                  key={`provider:${item.kind}`}
+                  item={item}
+                  actions={
+                    item.kind === "github" && environmentId !== null ? (
+                      <GitHubAuthActions
+                        item={item}
+                        environmentId={environmentId}
+                        onScan={handleScan}
+                      />
+                    ) : undefined
+                  }
+                />
               ))}
             </SettingsSection>
           ) : null}

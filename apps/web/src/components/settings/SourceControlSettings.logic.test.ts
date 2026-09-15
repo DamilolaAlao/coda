@@ -6,6 +6,7 @@ import {
   githubAuthSourceLabel,
   GITHUB_OAUTH_MESSAGE_TYPE,
   parseGitHubOAuthCompletionMessage,
+  shouldShowHostedGitHubAuthGate,
 } from "./SourceControlSettings.logic";
 
 const unauthenticated = {
@@ -57,5 +58,56 @@ describe("GitHub auth presentation", () => {
     ).toBe("failed");
     expect(parseGitHubOAuthCompletionMessage({ type: "other", result: "connected" })).toBeNull();
     expect(parseGitHubOAuthCompletionMessage("connected")).toBeNull();
+  });
+
+  it("shows the GitHub auth layer after passcode until this client is signed in", () => {
+    expect(
+      shouldShowHostedGitHubAuthGate({
+        pairingRoute: false,
+        unlocked: true,
+        githubConnected: false,
+        managedOAuthAvailable: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowHostedGitHubAuthGate({
+        pairingRoute: false,
+        unlocked: true,
+        githubConnected: null,
+        managedOAuthAvailable: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowHostedGitHubAuthGate({
+        pairingRoute: false,
+        unlocked: true,
+        githubConnected: true,
+        managedOAuthAvailable: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowHostedGitHubAuthGate({
+        pairingRoute: true,
+        unlocked: true,
+        githubConnected: false,
+        managedOAuthAvailable: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowHostedGitHubAuthGate({
+        pairingRoute: false,
+        unlocked: false,
+        githubConnected: false,
+        managedOAuthAvailable: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowHostedGitHubAuthGate({
+        pairingRoute: false,
+        unlocked: false,
+        githubConnected: false,
+        managedOAuthAvailable: true,
+      }),
+    ).toBe(true);
   });
 });

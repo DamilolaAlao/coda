@@ -19,6 +19,7 @@ describe("GitHub OAuth completion page", () => {
     expect(html).toContain(GitHubOAuth.GITHUB_OAUTH_MESSAGE_TYPE);
     expect(html).toContain('"connected"');
     expect(html).toContain("You can close this window");
+    expect(html).toContain('window.location.replace("/")');
     expect(html).not.toContain("gho_");
     expect(html).not.toContain("access_token");
     expect(html).not.toContain("/settings/source-control");

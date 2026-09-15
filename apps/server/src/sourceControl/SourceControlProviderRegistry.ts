@@ -18,6 +18,7 @@ import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
 import * as GitLabSourceControlProvider from "./GitLabSourceControlProvider.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import * as GitHubCredentialStore from "./GitHubCredentialStore.ts";
+import { oauthConfig } from "./GitHubOAuth.ts";
 import { GitHubTenant } from "./GitHubTenant.ts";
 import {
   probeSourceControlProvider,
@@ -29,17 +30,35 @@ import { ServerConfig } from "../config.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 
+function overlayGitHubOAuthAvailability(
+  items: ReadonlyArray<SourceControlProviderDiscoveryItem>,
+): ReadonlyArray<SourceControlProviderDiscoveryItem> {
+  const managedOAuthAvailable = oauthConfig() !== null;
+  return items.map((item) =>
+    item.kind === "github"
+      ? {
+          ...item,
+          auth: {
+            ...item.auth,
+            managedOAuthAvailable,
+          },
+        }
+      : item,
+  );
+}
+
 function overlayManagedGitHubAuth(
   items: ReadonlyArray<SourceControlProviderDiscoveryItem>,
 ): Effect.Effect<ReadonlyArray<SourceControlProviderDiscoveryItem>> {
   return Effect.gen(function* () {
+    const withOAuthAvailability = overlayGitHubOAuthAvailability(items);
     const store = yield* Effect.serviceOption(GitHubCredentialStore.GitHubCredentialStore);
-    if (Option.isNone(store)) return items;
+    if (Option.isNone(store)) return withOAuthAvailability;
     const tenant = yield* GitHubTenant;
-    if (tenant === null) return items;
+    if (tenant === null) return withOAuthAvailability;
     const credential = yield* store.value.get(tenant.sessionId);
-    if (Option.isNone(credential)) return items;
-    return items.map((item) =>
+    if (Option.isNone(credential)) return withOAuthAvailability;
+    return withOAuthAvailability.map((item) =>
       item.kind === "github"
         ? {
             ...item,
@@ -48,6 +67,7 @@ function overlayManagedGitHubAuth(
               account: credential.value.account,
               host: credential.value.host,
               source: "managed",
+              managedOAuthAvailable: item.auth.managedOAuthAvailable,
             }),
           }
         : item,

@@ -98,6 +98,7 @@ export function providerAuth(input: {
   readonly host?: string | undefined;
   readonly detail?: string | undefined;
   readonly source?: SourceControlProviderAuth["source"];
+  readonly managedOAuthAvailable?: boolean | undefined;
 }): SourceControlProviderAuth {
   return {
     status: input.status,
@@ -105,6 +106,9 @@ export function providerAuth(input: {
     host: authHost(input.host),
     detail: authDetail(input.detail),
     ...(input.source === undefined ? {} : { source: input.source }),
+    ...(input.managedOAuthAvailable === undefined
+      ? {}
+      : { managedOAuthAvailable: input.managedOAuthAvailable }),
   };
 }
 

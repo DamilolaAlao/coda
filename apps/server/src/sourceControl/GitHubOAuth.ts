@@ -102,7 +102,11 @@ export function renderGitHubOAuthCompletionHtml(input: {
         type: ${JSON.stringify(GITHUB_OAUTH_MESSAGE_TYPE)},
         result: ${JSON.stringify(input.result)}
       }, "*");
-      window.close();
+      if (window.opener) {
+        window.close();
+      } else {
+        window.location.replace("/");
+      }
     </script>
   </body>
 </html>`;

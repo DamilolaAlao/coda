@@ -122,6 +122,7 @@ export const SourceControlProviderAuth = Schema.Struct({
   host: Schema.Option(TrimmedNonEmptyString),
   detail: Schema.Option(TrimmedNonEmptyString),
   source: Schema.optionalKey(SourceControlGitHubAuthSource),
+  managedOAuthAvailable: Schema.optionalKey(Schema.Boolean),
 });
 export type SourceControlProviderAuth = typeof SourceControlProviderAuth.Type;
 
