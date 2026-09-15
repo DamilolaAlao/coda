@@ -1,4 +1,4 @@
-import { ChevronDownIcon, GitPullRequestIcon, RefreshCwIcon } from "lucide-react";
+import { ChevronDownIcon, GitPullRequestIcon, LogOutIcon, RefreshCwIcon } from "lucide-react";
 import * as Duration from "effect/Duration";
 import * as Option from "effect/Option";
 import { useState, type ReactNode } from "react";
@@ -19,7 +19,11 @@ import {
 
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
+import {
+  useEnvironmentHttpBaseUrl,
+  useEnvironments,
+  usePrimaryEnvironment,
+} from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { Badge } from "../ui/badge";
@@ -330,6 +334,51 @@ function DiscoveryItemRow({
   );
 }
 
+function GitHubAuthActions({
+  item,
+  onScan,
+  authBaseUrl,
+}: {
+  readonly item: SourceControlProviderDiscoveryItem;
+  readonly onScan: () => void;
+  readonly authBaseUrl: string;
+}) {
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const isAuthenticated = item.auth.status === "authenticated";
+
+  const disconnect = async () => {
+    setIsDisconnecting(true);
+    try {
+      const response = await fetch(new URL("/api/auth/github/logout", authBaseUrl), {
+        method: "POST",
+      });
+      if (response.ok) onScan();
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      {isAuthenticated ? (
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() => void disconnect()}
+          disabled={isDisconnecting}
+        >
+          <LogOutIcon className="size-3.5" />
+          {isDisconnecting ? "Disconnecting…" : "Disconnect"}
+        </Button>
+      ) : (
+        <Button size="xs" render={<a href={new URL("/api/auth/github", authBaseUrl).toString()} />}>
+          Connect GitHub
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function GitFetchIntervalSettings() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
@@ -500,6 +549,12 @@ export function SourceControlSettingsPanel() {
     null;
   const environmentId =
     primaryEnvironment?.environmentId ?? fallbackEnvironment?.environmentId ?? null;
+  const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
+  const sameOriginAuthBaseUrl =
+    environmentHttpBaseUrl !== null &&
+    new URL(environmentHttpBaseUrl, window.location.href).origin === window.location.origin
+      ? environmentHttpBaseUrl
+      : null;
   const isPrimaryEnvironment = environmentId === primaryEnvironment?.environmentId;
   const discovery = useEnvironmentQuery(
     environmentId === null
@@ -567,7 +622,17 @@ export function SourceControlSettingsPanel() {
               headerAction={hasVersionControlSystems ? null : scanButton}
             >
               {result.sourceControlProviders.map((item) => (
-                <DiscoveryItemRow key={`provider:${item.kind}`} item={item} />
+                <DiscoveryItemRow key={`provider:${item.kind}`} item={item}>
+                  {item.kind === "github" &&
+                  item.status === "available" &&
+                  sameOriginAuthBaseUrl !== null ? (
+                    <GitHubAuthActions
+                      item={item}
+                      onScan={handleScan}
+                      authBaseUrl={sameOriginAuthBaseUrl}
+                    />
+                  ) : undefined}
+                </DiscoveryItemRow>
               ))}
             </SettingsSection>
           ) : null}

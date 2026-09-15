@@ -14,11 +14,14 @@ it loaded.
 
 Never put a live pairing PIN or deploy token in git.
 
-| Variable | Where |
-| --- | --- |
-| `T3CODE_PAIRING_CODE` | Six-digit PIN. Set in `deploy/zerops/.env` (gitignored) for `pack.sh`, or in the Zerops service env UI. If unset or not six digits, passcode pairing is off. |
-| `T3CODE_PUBLIC_URL` | Public `https://` origin. Used as the pairing JWT audience. Same sources as the PIN. |
-| Zerops token | `zcli login`, not the repo |
+| Variable               | Where                                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `T3CODE_PAIRING_CODE`  | Six-digit PIN. Set in `deploy/zerops/.env` (gitignored) for `pack.sh`, or in the Zerops service env UI. If unset or not six digits, passcode pairing is off. |
+| `T3CODE_PUBLIC_URL`    | Public `https://` origin. Used as the pairing JWT audience. Same sources as the PIN.                                                                         |
+| `GITHUB_CLIENT_ID`     | Client ID for the GitHub OAuth app used by Settings → Source Control.                                                                                        |
+| `GITHUB_CLIENT_SECRET` | Client secret for the GitHub OAuth app. Keep it only in the gitignored `.env` or Zerops env.                                                                 |
+| `GITHUB_REDIRECT_URI`  | Exact public callback URL: `https://<stack-host>/api/auth/github/callback`. Register the same URL in the GitHub OAuth app.                                   |
+| Zerops token           | `zcli login`, not the repo                                                                                                                                   |
 
 Copy [`deploy/zerops/.env.example`](../../deploy/zerops/.env.example) to
 `deploy/zerops/.env` and fill in your values.
@@ -28,16 +31,16 @@ Copy [`deploy/zerops/.env.example`](../../deploy/zerops/.env.example) to
 [`deploy/zerops/`](../../deploy/zerops/) is the push directory. It is **not** the git monorepo
 root.
 
-| File | Role |
-| --- | --- |
-| `package.json` | Runtime deps (`@ff-labs/fff-node`, `node-pty`) |
-| `install-hermes.sh` | Non-interactive Hermes install into the runtime image |
-| `hermes-wrapper.sh` | Relocatable `bin/hermes` |
-| `start.sh` | Runtime start: `node dist/bin.mjs serve` |
-| `zerops.yml` | Native Node 24 + Automatic Scaling; prepare installs Hermes |
-| `pack.sh` | Bundles server + web dist into a push directory |
-| `.env.example` | Template for pack-time `T3CODE_PUBLIC_URL` / `T3CODE_PAIRING_CODE` |
-| `Dockerfile` / `run.sh` | Optional local Docker image; not used on Zerops |
+| File                    | Role                                                         |
+| ----------------------- | ------------------------------------------------------------ |
+| `package.json`          | Runtime deps (`@ff-labs/fff-node`, `node-pty`)               |
+| `install-hermes.sh`     | Non-interactive Hermes install into the runtime image        |
+| `hermes-wrapper.sh`     | Relocatable `bin/hermes`                                     |
+| `start.sh`              | Runtime start: `node dist/bin.mjs serve`                     |
+| `zerops.yml`            | Native Node 24 + Automatic Scaling; prepare installs Hermes  |
+| `pack.sh`               | Bundles server + web dist into a push directory              |
+| `.env.example`          | Template for pack-time server and GitHub OAuth configuration |
+| `Dockerfile` / `run.sh` | Optional local Docker image; not used on Zerops              |
 
 ## Push
 
@@ -51,9 +54,8 @@ deploy/zerops/pack.sh /tmp/coda-zerops
 zcli service push stack -P <project-id> --working-dir /tmp/coda-zerops --no-git
 ```
 
-`pack.sh` stamps `IMAGE_TAG` with the current git short SHA (cache-busting only) and
-substitutes `__T3CODE_PUBLIC_URL__` / `__T3CODE_PAIRING_CODE__` from the environment
-or `deploy/zerops/.env`.
+`pack.sh` stamps `IMAGE_TAG` with the current git short SHA (cache-busting only) and substitutes
+the server and GitHub OAuth values from the environment or `deploy/zerops/.env`.
 
 Do not set a `PATH` env var in `zerops.yml`; Zerops reserves that key.
 
@@ -69,7 +71,26 @@ LIGHT projects cap below the yaml max (typically 3 CPU / 6 GB RAM).
 
 ## Persistence
 
-`HOME` is `/home/zerops/coda` (`~/`): an empty workspace for agent projects. `T3CODE_HOME` is
-`/home/zerops/.t3` (pairing keys, SQLite). `CODA_DEPLOYMENTS_HOME` is `/home/zerops/deployments`
-(XDG config/cache for zcli and other deploy CLIs). Agent and terminal processes do not inherit
-`T3CODE_*`, `VITE_*`, or `ZEROPS_*`, so they cannot treat this Coda host as their deploy target.
+Zerops runtime containers are ephemeral: anything outside a mounted volume is lost on redeploy.
+`stack` mounts a Local Storage service (`data`) at `/srv/coda-data`.
+
+One-time, create the volume service if the project does not have it yet:
+
+```bash
+zcli project service-import deploy/zerops/data-service-import.yml -P <project-id>
+```
+
+Then deploy `stack` as usual; `zerops.yml` wires the mount.
+
+| Path                         | Role                                                 |
+| ---------------------------- | ---------------------------------------------------- |
+| `/srv/coda-data/.t3`         | `T3CODE_HOME` — pairing keys, SQLite, settings       |
+| `/srv/coda-data/coda`        | `HOME` — agent project workspace (`~/`)              |
+| `/srv/coda-data/deployments` | `CODA_DEPLOYMENTS_HOME` — zcli/fly/railway XDG state |
+| `/srv/coda-data/hermes`      | `HERMES_HOME` — Hermes config and secrets            |
+
+On first boot after attaching the volume, `start.sh` copies any leftover state from the old
+ephemeral `/home/zerops/*` paths when the destination is still empty.
+
+Agent and terminal processes do not inherit `T3CODE_*`, `VITE_*`, or `ZEROPS_*`, so they cannot
+treat this Coda host as their deploy target.

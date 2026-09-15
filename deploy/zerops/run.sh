@@ -25,5 +25,8 @@ exec docker run --network=host --name coda-runtime \
   -e T3CODE_PUBLIC_URL \
   -e T3CODE_PAIRING_CODE \
   -e HERMES_HOME \
+  -e GITHUB_CLIENT_ID \
+  -e GITHUB_CLIENT_SECRET \
+  -e GITHUB_REDIRECT_URI \
   -v "$VOLUME":/data \
   "coda:${IMAGE_TAG}"

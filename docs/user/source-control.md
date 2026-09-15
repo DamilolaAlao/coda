@@ -71,11 +71,17 @@ Run a quick **Rescan** after setting up a new machine or changing credentials.
    ```bash
    brew install gh
    ```
-2. Sign in:
+2. Open **Settings → Source Control** and choose **Connect GitHub**. Your server administrator
+   must configure a GitHub OAuth app for this button to work.
+
+   If browser sign-in is not configured, sign in from a terminal on the Coda server:
+
    ```bash
    gh auth login
    ```
-3. Open **Settings → Source Control** in Coda and verify GitHub shows as authenticated
+
+3. Verify GitHub shows as authenticated. Use **Disconnect** on the same page to remove the account
+   from the server.
 
 You can now clone, publish, and create pull requests.
 

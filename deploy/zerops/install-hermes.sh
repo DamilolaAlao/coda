@@ -2,7 +2,8 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-export HERMES_HOME="${HERMES_HOME:-$ROOT/vendor/hermes-home}"
+# Prepare runs before Local Storage is mounted; keep the install tree ephemeral.
+export HERMES_HOME="$ROOT/vendor/hermes-home"
 export HERMES_INSTALL_DIR="${HERMES_INSTALL_DIR:-$ROOT/vendor/hermes-agent}"
 export HOME="${HERMES_INSTALL_HOME:-$ROOT/vendor/hermes-user}"
 
@@ -39,4 +40,8 @@ fi
 "$ROOT/bin/hermes" --version
 "$ROOT/bin/hermes" acp --check || true
 
-printf 'model:\n  default: kimi-k3\n  provider: opencode-go\n' > "$HERMES_HOME/config.yaml"
+# Runtime config lives on the Local Storage volume (see start.sh). Do not
+# overwrite an existing config on prepare-cache reuse.
+if [ ! -f "$HERMES_HOME/config.yaml" ]; then
+  printf 'model:\n  default: kimi-k3\n  provider: opencode-go\n' > "$HERMES_HOME/config.yaml"
+fi

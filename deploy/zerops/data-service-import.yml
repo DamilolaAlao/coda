@@ -1,0 +1,5 @@
+# One-time import into project `coda`:
+#   zcli project service-import deploy/zerops/data-service-import.yml -P <project-id>
+services:
+  - hostname: data
+    type: local-storage:single@1

@@ -28,7 +28,7 @@ zerops:
         startCpuCoreCount: 2
       prepareCommands:
         - sudo apt-get update
-        - sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-venv make g++ curl git ca-certificates
+        - sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-venv make g++ curl git gh ca-certificates
         - npm i --prefix /home/zerops --omit=dev --ignore-scripts=false
         - test -d /home/zerops/node_modules/@ff-labs/fff-node
         - npm rebuild node-pty --prefix /home/zerops --foreground-scripts || true
@@ -37,15 +37,21 @@ zerops:
       ports:
         - port: 3773
           httpSupport: true
+      volume:
+        hostname: data
+        mountPath: /srv/coda-data
       envVariables:
         NODE_ENV: production
         IMAGE_TAG: __IMAGE_TAG__
         T3CODE_HOST: 0.0.0.0
         T3CODE_PORT: "3773"
-        T3CODE_HOME: /home/zerops/.t3
-        HOME: /home/zerops/coda
-        CODA_DEPLOYMENTS_HOME: /home/zerops/deployments
+        CODA_DATA_ROOT: /srv/coda-data
+        T3CODE_HOME: /srv/coda-data/.t3
+        HOME: /srv/coda-data/coda
+        CODA_DEPLOYMENTS_HOME: /srv/coda-data/deployments
         T3CODE_PUBLIC_URL: __T3CODE_PUBLIC_URL__
         T3CODE_PAIRING_CODE: "__T3CODE_PAIRING_CODE__"
-        HERMES_HOME: /home/zerops/vendor/hermes-home
+        GITHUB_CLIENT_ID: __GITHUB_CLIENT_ID__
+        GITHUB_CLIENT_SECRET: __GITHUB_CLIENT_SECRET__
+        GITHUB_REDIRECT_URI: __GITHUB_REDIRECT_URI__
       start: /bin/sh /var/www/start.sh

@@ -41,6 +41,7 @@ import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
 import * as BitbucketApi from "./sourceControl/BitbucketApi.ts";
 import * as GitHubCli from "./sourceControl/GitHubCli.ts";
+import * as GitHubOAuth from "./sourceControl/GitHubOAuth.ts";
 import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
@@ -457,6 +458,7 @@ export const makeRoutesLayer = Layer.mergeAll(
     HttpApiScalar.layer(EnvironmentHttpApi, { path: "/docs" }),
     otlpTracesProxyRouteLayer,
     assetRouteLayer,
+    GitHubOAuth.routeLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),
