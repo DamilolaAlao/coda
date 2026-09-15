@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
+import * as HttpApiScalar from "effect/unstable/httpapi/HttpApiScalar";
 
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
@@ -21,6 +22,7 @@ import {
 import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
+import { httpClientHttpApiLayer } from "./httpClient/http.ts";
 import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -443,14 +445,16 @@ const PullRequestServiceLive = PullRequestService.layer.pipe(
 
 export const makeRoutesLayer = Layer.mergeAll(
   Layer.mergeAll(
-    HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
+    HttpApiBuilder.layer(EnvironmentHttpApi, { openapiPath: "/openapi.json" }).pipe(
       Layer.provide(authHttpApiLayer),
       Layer.provide(connectHttpApiLayer),
       Layer.provide(orchestrationHttpApiLayer),
       Layer.provide(pullRequestHttpApiLayer),
+      Layer.provide(httpClientHttpApiLayer),
       Layer.provide(serverEnvironmentHttpApiLayer),
       Layer.provide(environmentAuthenticatedAuthLayer),
     ),
+    HttpApiScalar.layer(EnvironmentHttpApi, { path: "/docs" }),
     otlpTracesProxyRouteLayer,
     assetRouteLayer,
     staticAndDevRouteLayer,

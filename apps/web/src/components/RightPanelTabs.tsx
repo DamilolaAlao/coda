@@ -8,6 +8,7 @@ import {
   Globe2,
   Plus,
   TerminalSquare,
+  Unplug,
   X,
 } from "lucide-react";
 import {
@@ -65,12 +66,14 @@ interface RightPanelTabsProps {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddAgents: () => void;
+  onAddHttp: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
+  httpAvailable: boolean;
   pullRequestStatuses?: Readonly<Record<string, PullRequestTabStatus>>;
   /** Running + waiting subagents; badges the Agents card in the empty state. */
   liveAgentCount: number;
@@ -92,6 +95,7 @@ const SURFACE_DISABLED_REASONS = {
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
   agents: "Agents are only available from a thread.",
+  http: "HTTP is only available from a thread.",
 } as const;
 
 /** Overlays that must win over the launcher's letter shortcuts. */
@@ -114,6 +118,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
   agents: "Available from a thread.",
+  http: "Available from a thread.",
 } as const;
 
 type TabContextMenuAction = "copy-path" | "close" | "close-others" | "close-to-right" | "close-all";
@@ -160,12 +165,14 @@ function RightPanelEmptyState(props: {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddAgents: () => void;
+  onAddHttp: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
+  httpAvailable: boolean;
   liveAgentCount: number;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
@@ -231,6 +238,16 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.agents,
       onClick: props.onAddAgents,
       badgeCount: props.liveAgentCount,
+    },
+    {
+      label: "HTTP",
+      description: "Send REST requests from this environment.",
+      icon: Unplug,
+      shortcut: "H",
+      available: props.httpAvailable,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.http,
+      onClick: props.onAddHttp,
+      badgeCount: 0,
     },
   ] as const;
 
@@ -426,6 +443,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "agents":
       return "Agents";
+    case "http":
+      return "HTTP";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -511,6 +530,8 @@ function SurfaceIcon({
     }
     case "agents":
       return <Bot className="size-3 shrink-0" />;
+    case "http":
+      return <Unplug className="size-3 shrink-0" />;
   }
 }
 
@@ -743,6 +764,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <Bot />
                     Agents
                   </SurfaceMenuItem>
+                  <SurfaceMenuItem
+                    available={props.httpAvailable}
+                    disabledReason={SURFACE_DISABLED_REASONS.http}
+                    onClick={props.onAddHttp}
+                  >
+                    <Unplug />
+                    HTTP
+                  </SurfaceMenuItem>
                 </MenuPopup>
               </Menu>
             ) : null}
@@ -759,12 +788,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddFiles={props.onAddFiles}
             onAddPullRequest={props.onAddPullRequest}
             onAddAgents={props.onAddAgents}
+            onAddHttp={props.onAddHttp}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}
             pullRequestAvailable={props.pullRequestAvailable}
             agentsAvailable={props.agentsAvailable}
+            httpAvailable={props.httpAvailable}
             liveAgentCount={props.liveAgentCount}
           />
         ) : (
