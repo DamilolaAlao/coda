@@ -87,7 +87,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "..
 import { AnimatedHeight } from "../AnimatedHeight";
 import { Textarea } from "../ui/textarea";
 import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "../../pairingUrl";
-import { readHostedPairingRequest } from "../../hostedPairing";
+import { configuredPairingUrl, readHostedPairingRequest } from "../../hostedPairing";
 import {
   createServerPairingCredential,
   revokeOtherServerClientSessions,
@@ -1802,7 +1802,7 @@ export function ConnectionsSettings() {
   const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] = useState(false);
   const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
   const [savedBackendMode, setSavedBackendMode] = useState<"remote" | "ssh">("remote");
-  const [savedBackendHost, setSavedBackendHost] = useState("");
+  const [savedBackendHost, setSavedBackendHost] = useState(() => configuredPairingUrl());
   const [savedBackendPairingCode, setSavedBackendPairingCode] = useState("");
   const [savedBackendSshHost, setSavedBackendSshHost] = useState("");
   const [savedBackendSshUsername, setSavedBackendSshUsername] = useState("");
@@ -2148,7 +2148,7 @@ export function ConnectionsSettings() {
         return;
       }
 
-      setSavedBackendHost("");
+      setSavedBackendHost(configuredPairingUrl());
       setSavedBackendPairingCode("");
       setSavedBackendSshHost("");
       setSavedBackendSshUsername("");
@@ -2203,7 +2203,7 @@ export function ConnectionsSettings() {
       return;
     }
 
-    setSavedBackendHost("");
+    setSavedBackendHost(configuredPairingUrl());
     setSavedBackendPairingCode("");
     setSavedBackendSshHost("");
     setSavedBackendSshUsername("");
@@ -2412,7 +2412,7 @@ export function ConnectionsSettings() {
           <Input
             value={savedBackendHost}
             onChange={(event) => handleSavedBackendHostChange(event.target.value)}
-            placeholder="backend.example.com"
+            placeholder={configuredPairingUrl()}
             disabled={isAddingSavedBackend}
             spellCheck={false}
           />

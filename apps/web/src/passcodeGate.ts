@@ -19,8 +19,13 @@ export type HostedPasscodeAttemptResult =
   | { ok: false; kind: "mismatch"; remainingAttempts: number; message: string; next: HostedPasscodeAttemptState }
   | { ok: false; kind: "locked"; remainingMs: number; message: string; next: HostedPasscodeAttemptState };
 
+export function resolveHostedPasscode(raw: string | undefined): string {
+  const trimmed = raw?.trim() ?? "";
+  return HOSTED_PASSCODE_PATTERN.test(trimmed) ? trimmed : DEFAULT_HOSTED_PASSCODE;
+}
+
 export function configuredHostedPasscode(): string {
-  return DEFAULT_HOSTED_PASSCODE;
+  return resolveHostedPasscode(import.meta.env.VITE_PAIRING_CODE);
 }
 
 export function emptyPasscodeAttemptState(): HostedPasscodeAttemptState {

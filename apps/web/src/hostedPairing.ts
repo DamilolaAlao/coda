@@ -10,6 +10,33 @@ export interface HostedPairingRequest {
 
 export type HostedAppChannel = "latest" | "nightly";
 
+export const DEFAULT_PAIRING_URL = "https://app-3069-3773.prg1.zerops.app";
+
+export function resolvePairingUrl(raw: string | undefined): string {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return DEFAULT_PAIRING_URL;
+
+  const candidates = /^[a-zA-Z][a-zA-Z\d+-]*:\/\//.test(trimmed) ? [trimmed] : [`https://${trimmed}`];
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate);
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        return url.origin;
+      }
+    } catch {
+      // try the next candidate
+    }
+  }
+
+  return DEFAULT_PAIRING_URL;
+}
+
+export function configuredPairingUrl(): string {
+  return resolvePairingUrl(
+    import.meta.env.VITE_PAIRING_URL || import.meta.env.VITE_DEFAULT_ENVIRONMENT_URL,
+  );
+}
+
 export function configuredHostedAppUrl(): string {
   return import.meta.env.VITE_HOSTED_APP_URL?.trim() || DEFAULT_HOSTED_APP_URL;
 }
@@ -45,7 +72,7 @@ export function isHostedStaticApp(url: URL = new URL(window.location.href)): boo
 }
 
 export function readHostedPairingRequest(url: URL = new URL(window.location.href)) {
-  const host = url.searchParams.get("host")?.trim() ?? "";
+  const host = url.searchParams.get("host")?.trim() || configuredPairingUrl();
   const token = getPairingTokenFromUrl(url)?.trim() ?? "";
   const label = url.searchParams.get("label")?.trim() ?? "";
 
