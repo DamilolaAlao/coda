@@ -232,6 +232,7 @@ function HostedAccessControllers() {
           }
           writePasscodeUnlocked(true);
           setUnlocked(true);
+          window.location.assign("/api/auth/github");
         }}
       />
       <HostedStaticEnvironmentBootstrap />
