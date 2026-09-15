@@ -158,8 +158,9 @@ describe("t3 pair", () => {
         // Loopback origins are not reachable from a phone; the output must say so.
         assert.include(output, "only reachable from this machine");
 
-        const token = /#token=([A-Z2-9]+)/.exec(output)?.[1];
+        const token = /#token=([^\s]+)/.exec(output)?.[1];
         assert.isString(token);
+        assert.include(token, ".");
 
         // The token must be in the same store the running server reads.
         const listed = yield* captureStdout(
@@ -205,7 +206,7 @@ describe("t3 pair", () => {
       const rendered = String(
         typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
       );
-      assert.include(rendered, "No running T3 Code server found.");
+      assert.include(rendered, "No running Coda server found.");
       assert.include(rendered, "npx t3 serve");
       assert.include(rendered, "npx t3 connect");
     }).pipe(Effect.provide(NodeServices.layer)),
@@ -236,7 +237,7 @@ describe("t3 pair", () => {
         const rendered = String(
           typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
         );
-        assert.include(rendered, "No running T3 Code server found.");
+        assert.include(rendered, "No running Coda server found.");
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   );
@@ -262,7 +263,7 @@ describe("t3 pair", () => {
       const rendered = String(
         typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
       );
-      assert.include(rendered, "No running T3 Code server found.");
+      assert.include(rendered, "No running Coda server found.");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

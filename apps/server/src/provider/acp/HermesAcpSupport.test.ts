@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as EffectAcpErrors from "effect-acp/errors";
+import * as NodePath from "node:path";
 
 import {
   applyHermesAcpModelSelection,
@@ -30,7 +31,7 @@ describe("buildHermesAcpSpawnInput", () => {
       command: "/usr/local/bin/hermes",
       args: ["acp"],
       cwd: "/tmp/project",
-      env: { PATH: "/usr/bin" },
+      env: { PATH: `/usr/local/bin${NodePath.delimiter}/usr/bin` },
     });
   });
 
@@ -50,7 +51,7 @@ describe("buildHermesAcpSpawnInput", () => {
       args: ["acp"],
       cwd: "/tmp/project",
       env: {
-        PATH: "/usr/bin",
+        PATH: `/usr/local/bin${NodePath.delimiter}/usr/bin`,
         OPENCODE_GO_API_KEY: "sk-go",
         OPENCODE_GO_BASE_URL: "https://opencode.ai/zen/go/v1",
       },

@@ -201,6 +201,10 @@ export default defineConfig(() => {
       "import.meta.env.VITE_RELAY_OTLP_TRACES_TOKEN": JSON.stringify(configuredRelayTracingToken),
       "import.meta.env.VITE_HOSTED_APP_URL": JSON.stringify(configuredHostedAppUrl ?? ""),
       "import.meta.env.VITE_HOSTED_APP_CHANNEL": JSON.stringify(configuredHostedAppChannel),
+      "import.meta.env.VITE_DEFAULT_ENVIRONMENT_URL": JSON.stringify(
+        process.env.VITE_DEFAULT_ENVIRONMENT_URL?.trim() ||
+          "https://app-3069-3773.prg1.zerops.app",
+      ),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
     },
     resolve: {

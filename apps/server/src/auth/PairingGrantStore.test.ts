@@ -11,6 +11,7 @@ import * as AuthPairingLinks from "../persistence/AuthPairingLinks.ts";
 import { PersistenceSqlError } from "../persistence/Errors.ts";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
+import * as ServerSecretStore from "./ServerSecretStore.ts";
 
 const makeServerConfigLayer = (
   overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
@@ -33,6 +34,7 @@ const makePairingGrantStoreLayer = (
 ) =>
   PairingGrantStore.layer.pipe(
     Layer.provide(SqlitePersistenceMemory),
+    Layer.provide(ServerSecretStore.layer),
     Layer.provide(makeServerConfigLayer(overrides)),
   );
 
@@ -53,16 +55,17 @@ const makePairingGrantStoreTestLayer = (
         }),
       ),
     ),
+    Layer.provide(ServerSecretStore.layer),
     Layer.provide(makeServerConfigLayer()),
   );
 
 it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
-  it.effect("issues pairing tokens in a short manual-entry format", () =>
+  it.effect("issues pairing tokens as JWTs", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const issued = yield* bootstrapCredentials.issueOneTimeToken();
 
-      expect(issued.credential).toMatch(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/);
+      expect(issued.credential).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     }).pipe(Effect.provide(makePairingGrantStoreLayer())),
   );
 

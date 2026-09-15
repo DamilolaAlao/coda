@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HermesSettings } from "@t3tools/contracts";
 
-import { HERMES_DEFAULT_MODEL } from "../acp/HermesAcpSupport.ts";
+import { HERMES_DEFAULT_MODEL } from "@t3tools/contracts";
 import { buildInitialHermesProviderSnapshot, checkHermesProviderStatus } from "./HermesProvider.ts";
 
 const decodeHermesSettings = Schema.decodeSync(HermesSettings);

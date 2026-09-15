@@ -139,6 +139,8 @@ export const DEFAULT_MODEL = "gpt-5.6-sol";
 export const HERMES_DEFAULT_MODEL = "kimi-k3";
 export const HERMES_OPENCODE_GO_PROVIDER = "opencode-go";
 export const HERMES_OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
+export const HERMES_OPENCODE_GO_API_KEY_ENV = "OPENCODE_GO_API_KEY";
+export const HERMES_OPENCODE_GO_BASE_URL_ENV = "OPENCODE_GO_BASE_URL";
 
 /**
  * Codex default-model preference, most preferred first. The provider snapshot

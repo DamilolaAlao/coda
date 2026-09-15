@@ -18,6 +18,7 @@ import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
+import { PasscodeGateDialog } from "../components/auth/PasscodeGateDialog";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -137,6 +138,7 @@ function RootRouteView() {
         <ConnectOnboardingDialog />
         <SshPasswordPromptDialog />
         <ConfirmDialogHost />
+        <PasscodeGateHost />
         <SlowRpcRequestToastCoordinator />
         <HostedStaticEnvironmentBootstrap />
         {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
@@ -207,6 +209,19 @@ function DocumentTitleSync() {
   }, [title]);
 
   return null;
+}
+
+function PasscodeGateHost() {
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const { environments } = useEnvironments();
+  const hosted = isHostedStaticApp(new URL(window.location.href));
+  const pairingRoute = pathname === "/pair" || pathname === "/connect" || pathname.startsWith("/connect/");
+
+  return (
+    <PasscodeGateDialog
+      open={hosted && !pairingRoute && environments.length === 0}
+    />
+  );
 }
 
 function HostedStaticEnvironmentBootstrap() {

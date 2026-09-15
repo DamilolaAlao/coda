@@ -28,7 +28,8 @@ export function environmentMismatchError(input: {
 }): ConnectionBlockedError {
   return new ConnectionBlockedError({
     reason: "configuration",
-    detail: `Connected environment ${input.actual} does not match ${input.expected}.`,
+    detail:
+      "This server was reset. Remove the old connection, then open a fresh pairing link.",
   });
 }
 

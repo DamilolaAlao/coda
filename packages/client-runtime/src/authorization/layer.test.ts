@@ -131,7 +131,7 @@ const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (
           ClientCapabilities.ClientPresentation,
           ClientCapabilities.ClientPresentation.of({
             metadata: {
-              label: "T3 Code Test",
+              label: "Coda Test",
               deviceType: "mobile",
               os: "test",
             },
@@ -222,7 +222,8 @@ describe("RemoteEnvironmentAuthorization", () => {
         expect.objectContaining({
           _tag: "ConnectionBlockedError",
           reason: "configuration",
-          detail: `Connected environment ${reassignedEnvironmentId} does not match ${ENVIRONMENT_ID}.`,
+          detail:
+            "This server was reset. Remove the old connection, then open a fresh pairing link.",
         }),
       );
       expect(

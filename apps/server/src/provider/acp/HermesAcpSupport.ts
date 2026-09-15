@@ -1,10 +1,12 @@
 import {
   type HermesSettings,
   HERMES_DEFAULT_MODEL,
+  HERMES_OPENCODE_GO_API_KEY_ENV,
   HERMES_OPENCODE_GO_BASE_URL,
-  HERMES_OPENCODE_GO_PROVIDER,
+  HERMES_OPENCODE_GO_BASE_URL_ENV,
   ProviderDriverKind,
 } from "@t3tools/contracts";
+import * as NodePath from "node:path";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -16,12 +18,10 @@ import { normalizeModelSlug } from "@t3tools/shared/model";
 
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
-export { HERMES_DEFAULT_MODEL, HERMES_OPENCODE_GO_BASE_URL, HERMES_OPENCODE_GO_PROVIDER };
+export { HERMES_DEFAULT_MODEL };
 
 const HERMES_DRIVER_KIND = ProviderDriverKind.make("hermes");
 const HERMES_AUTH_METHOD_CUSTOM = "custom";
-const OPENCODE_GO_API_KEY_ENV = "OPENCODE_GO_API_KEY";
-const OPENCODE_GO_BASE_URL_ENV = "OPENCODE_GO_BASE_URL";
 
 type HermesAcpRuntimeHermesSettings = Pick<
   HermesSettings,
@@ -37,24 +37,50 @@ interface HermesAcpRuntimeInput extends Omit<
   readonly environment?: NodeJS.ProcessEnv;
 }
 
+function pathEnvKey(environment: NodeJS.ProcessEnv): string {
+  return Object.keys(environment).find((key) => key.toLowerCase() === "path") ?? "PATH";
+}
+
+function withHermesBinaryOnPath(
+  command: string,
+  environment: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  if (!NodePath.isAbsolute(command)) {
+    return environment;
+  }
+  const dir = NodePath.dirname(command);
+  const key = pathEnvKey(environment);
+  const current = environment[key] ?? "";
+  if (current.split(NodePath.delimiter).includes(dir)) {
+    return environment;
+  }
+  return {
+    ...environment,
+    [key]: current.length > 0 ? `${dir}${NodePath.delimiter}${current}` : dir,
+  };
+}
+
 export function buildHermesRuntimeEnvironment(
   hermesSettings: HermesAcpRuntimeHermesSettings | null | undefined,
   environment?: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv | undefined {
+  const command = hermesSettings?.binaryPath || "hermes";
   const apiKey = hermesSettings?.openCodeGoApiKey?.trim();
   const baseUrl = hermesSettings?.openCodeGoBaseUrl?.trim();
-  if (!apiKey && !baseUrl) {
+  const needsOverlay = Boolean(apiKey || baseUrl || NodePath.isAbsolute(command));
+  if (!needsOverlay) {
     return environment;
   }
 
-  const next: NodeJS.ProcessEnv = { ...(environment ?? {}) };
+  let next: NodeJS.ProcessEnv = { ...(environment ?? {}) };
+  next = withHermesBinaryOnPath(command, next);
   if (apiKey) {
-    next[OPENCODE_GO_API_KEY_ENV] = apiKey;
+    next[HERMES_OPENCODE_GO_API_KEY_ENV] = apiKey;
   }
   if (baseUrl) {
-    next[OPENCODE_GO_BASE_URL_ENV] = baseUrl;
-  } else if (apiKey && !next[OPENCODE_GO_BASE_URL_ENV]) {
-    next[OPENCODE_GO_BASE_URL_ENV] = HERMES_OPENCODE_GO_BASE_URL;
+    next[HERMES_OPENCODE_GO_BASE_URL_ENV] = baseUrl;
+  } else if (apiKey && !next[HERMES_OPENCODE_GO_BASE_URL_ENV]) {
+    next[HERMES_OPENCODE_GO_BASE_URL_ENV] = HERMES_OPENCODE_GO_BASE_URL;
   }
   return next;
 }

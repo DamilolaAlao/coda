@@ -1,11 +1,9 @@
 import {
   CommandId,
-  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   HERMES_DEFAULT_MODEL,
   type ModelSelection,
   ProjectId,
-  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -165,13 +163,10 @@ export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
   Effect.asVoid,
 );
 
-export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => {
-  const hermes = ProviderDriverKind.make("hermes");
-  return {
-    instanceId: ProviderInstanceId.make("hermes"),
-    model: DEFAULT_MODEL_BY_PROVIDER[hermes] ?? HERMES_DEFAULT_MODEL,
-  };
-};
+export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => ({
+  instanceId: ProviderInstanceId.make("hermes"),
+  model: HERMES_DEFAULT_MODEL,
+});
 
 export const resolveWelcomeBase = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
@@ -420,7 +415,7 @@ export const make = (options?: StartupOptions) =>
             const startupBrowserTarget = yield* resolveStartupBrowserTarget;
             if (serverConfig.mode !== "desktop") {
               yield* Effect.logInfo(
-                "Authentication required. Open T3 Code using the pairing URL.",
+                "Authentication required. Open Coda using the pairing URL.",
               ).pipe(Effect.annotateLogs({ pairingUrl: startupBrowserTarget }));
             }
             yield* runStartupPhase("browser.open", maybeOpenBrowser(startupBrowserTarget));

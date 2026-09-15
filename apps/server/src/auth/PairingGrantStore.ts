@@ -5,6 +5,8 @@ import {
   type AuthPairingLink,
   type ServerAuthBootstrapMethod,
 } from "@t3tools/contracts";
+import { signPairingJwt } from "@t3tools/shared/pairingJwt";
+import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -19,6 +21,7 @@ import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
 import * as AuthPairingLinks from "../persistence/AuthPairingLinks.ts";
+import * as ServerSecretStore from "./ServerSecretStore.ts";
 
 export interface BootstrapGrant {
   readonly method: ServerAuthBootstrapMethod;
@@ -257,40 +260,42 @@ const DESKTOP_BOOTSTRAP_TTL_HOURS = Duration.hours(24);
 // bootstrap grant above. Only applies when a dev URL is configured; user-issued
 // pairing links and real servers keep the 5-minute default.
 const DEV_STARTUP_TTL_HOURS = Duration.hours(24);
-const PAIRING_TOKEN_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-const PAIRING_TOKEN_LENGTH = 12;
-const PAIRING_TOKEN_REJECTION_LIMIT =
-  Math.floor(256 / PAIRING_TOKEN_ALPHABET.length) * PAIRING_TOKEN_ALPHABET.length;
+const PAIRING_JWT_SECRET_NAME = "pairing-jwt";
+const PAIRING_JWT_SECRET_BYTES = 32;
 
 export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const config = yield* ServerConfig.ServerConfig;
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
   const pairingLinks = yield* AuthPairingLinks.AuthPairingLinkRepository;
   const seededGrantsRef = yield* Ref.make(new Map<string, StoredBootstrapGrant>());
   const changesPubSub = yield* PubSub.unbounded<BootstrapCredentialChange>();
-  const generatePairingToken = Effect.gen(function* () {
-    let credential = "";
-    while (credential.length < PAIRING_TOKEN_LENGTH) {
-      const bytes = yield* crypto
-        .randomBytes(PAIRING_TOKEN_LENGTH)
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new PairingCredentialRandomGenerationError({ operation: "generate-token", cause }),
-          ),
-        );
-      for (const byte of bytes) {
-        if (byte >= PAIRING_TOKEN_REJECTION_LIMIT) {
-          continue;
-        }
-        credential += PAIRING_TOKEN_ALPHABET[byte % PAIRING_TOKEN_ALPHABET.length]!;
-        if (credential.length === PAIRING_TOKEN_LENGTH) {
-          return credential;
-        }
-      }
-    }
-    return credential;
-  });
+  const generatePairingToken = (input: {
+    readonly id: string;
+    readonly subject: string;
+    readonly expiresAt: DateTime.Utc;
+  }) =>
+    Effect.gen(function* () {
+      const secret = yield* secrets.getOrCreateRandom(
+        PAIRING_JWT_SECRET_NAME,
+        PAIRING_JWT_SECRET_BYTES,
+      );
+      const audience = Option.getOrUndefined(
+        yield* Config.string("T3CODE_PUBLIC_URL").pipe(Config.option),
+      );
+      return yield* signPairingJwt({
+        secret,
+        jti: input.id,
+        subject: input.subject,
+        expiresAt: input.expiresAt,
+        ...(audience?.trim() ? { audience: audience.trim() } : {}),
+      });
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new PairingCredentialRandomGenerationError({ operation: "generate-token", cause }),
+      ),
+    );
 
   const seedGrant = (credential: string, grant: StoredBootstrapGrant) =>
     Ref.update(seededGrantsRef, (current) => {
@@ -384,13 +389,18 @@ export const make = Effect.gen(function* () {
         (cause) => new PairingCredentialRandomGenerationError({ operation: "generate-id", cause }),
       ),
     );
-    const credential = yield* generatePairingToken;
     const isDevStartupToken = config.devUrl !== undefined && input?.purpose === "startup";
     const ttl =
       input?.ttl ??
       (isDevStartupToken ? DEV_STARTUP_TTL_HOURS : DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES);
     const now = yield* DateTime.now;
     const expiresAt = DateTime.add(now, { milliseconds: Duration.toMillis(ttl) });
+    const subject = input?.subject ?? "one-time-token";
+    const credential = yield* generatePairingToken({
+      id,
+      subject,
+      expiresAt,
+    });
     const issued: IssuedBootstrapCredential = {
       id,
       credential,
@@ -398,7 +408,6 @@ export const make = Effect.gen(function* () {
       ...(input?.proofKeyThumbprint ? { proofKeyThumbprint: input.proofKeyThumbprint } : {}),
       expiresAt,
     };
-    const subject = input?.subject ?? "one-time-token";
     yield* pairingLinks
       .create({
         id,
@@ -580,4 +589,5 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(PairingGrantStore, make).pipe(
   Layer.provideMerge(AuthPairingLinks.layer),
+  Layer.provide(ServerSecretStore.layer),
 );

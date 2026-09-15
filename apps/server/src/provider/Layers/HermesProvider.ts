@@ -1,4 +1,5 @@
 import {
+  HERMES_DEFAULT_MODEL,
   type HermesSettings,
   type ModelCapabilities,
   type ServerProvider,
@@ -30,7 +31,7 @@ import {
   type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance.ts";
 import {
-  HERMES_DEFAULT_MODEL,
+  buildHermesRuntimeEnvironment,
   makeHermesAcpRuntime,
   resolveHermesAcpBaseModelId,
 } from "../acp/HermesAcpSupport.ts";
@@ -74,7 +75,7 @@ export function buildInitialHermesProviderSnapshot(
           version: null,
           status: "warning",
           auth: { status: "unknown" },
-          message: "Hermes is disabled in T3 Code settings.",
+          message: "Hermes is disabled in Coda settings.",
         },
       });
     }
@@ -150,13 +151,14 @@ const runHermesVersionCommand = (
 ) =>
   Effect.gen(function* () {
     const command = hermesSettings.binaryPath || "hermes";
+    const spawnEnv = buildHermesRuntimeEnvironment(hermesSettings, environment) ?? environment;
     const spawnCommand = yield* resolveSpawnCommand(command, ["--version"], {
-      env: environment,
+      env: spawnEnv,
     });
     return yield* spawnAndCollect(
       command,
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-        env: environment,
+        env: spawnEnv,
         shell: spawnCommand.shell,
       }),
     );
@@ -184,7 +186,7 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Hermes is disabled in T3 Code settings.",
+        message: "Hermes is disabled in Coda settings.",
       },
     });
   }

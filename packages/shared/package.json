@@ -131,6 +131,10 @@
       "types": "./src/relayJwt.ts",
       "import": "./src/relayJwt.ts"
     },
+    "./pairingJwt": {
+      "types": "./src/pairingJwt.ts",
+      "import": "./src/pairingJwt.ts"
+    },
     "./oauthScope": {
       "types": "./src/oauthScope.ts",
       "import": "./src/oauthScope.ts"

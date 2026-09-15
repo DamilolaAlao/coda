@@ -1,0 +1,12 @@
+{
+  "name": "coda-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node dist/bin.mjs serve --host 0.0.0.0 --port 3773"
+  },
+  "dependencies": {
+    "@ff-labs/fff-node": "0.9.4",
+    "node-pty": "^1.1.0"
+  }
+}
