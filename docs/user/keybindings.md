@@ -47,6 +47,7 @@ Use **Inspect** to pick an element in the app and reveal its color token. Inspec
 successful pick; its hover glow and badge preview the element and token that click will select.
 **Cancel** or `Escape` exits Inspect and clears its selection and spotlight.
 `http.toggle` opens or closes the HTTP client in the right panel and defaults to `mod+shift+u`.
+`apps.toggle` opens or closes the Apps panel and defaults to `mod+shift+a`.
 
 The command palette searches active thread titles, projects, branches, user messages, and final
 agent responses across connected environments. Message matches show one labeled excerpt while

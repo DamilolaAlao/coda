@@ -30,7 +30,7 @@ import { CommandId, type EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { CommonActions, StackActions, useNavigation } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, Linking, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
@@ -55,7 +55,7 @@ import {
   useRemoteEnvironmentRuntime,
   useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
-import { resolveAddProjectEnvironment } from "./AddProjectScreen.logic";
+import { canConnectGitHubProvider, resolveAddProjectEnvironment } from "./AddProjectScreen.logic";
 
 interface EnvironmentOption {
   readonly environmentId: EnvironmentId;
@@ -383,6 +383,7 @@ function SourceControlRow(props: {
   readonly ready: boolean;
   readonly hint: string;
   readonly isFirst: boolean;
+  readonly onConnectGitHub?: () => void;
 }) {
   const navigation = useNavigation();
   const iconColor = useThemeColor("--color-icon");
@@ -400,6 +401,17 @@ function SourceControlRow(props: {
     );
 
   if (!props.ready) {
+    if (props.source === "github" && props.onConnectGitHub) {
+      return (
+        <ListRow
+          title="Connect GitHub"
+          subtitle={props.hint}
+          icon={icon}
+          isFirst={props.isFirst}
+          onPress={props.onConnectGitHub}
+        />
+      );
+    }
     return (
       <ListRow title={title} subtitle={props.hint} icon={icon} disabled isFirst={props.isFirst} />
     );
@@ -437,10 +449,41 @@ export function AddProjectSourceScreen() {
           input: {},
         }),
   );
+  const startGitHubOAuth = useAtomCommand(sourceControlEnvironment.startGitHubOAuth, {
+    reportFailure: false,
+  });
   const readiness = useMemo(
     () => buildAddProjectRemoteSourceReadiness(discoveryState.data),
     [discoveryState.data],
   );
+  const githubProvider = discoveryState.data?.sourceControlProviders.find(
+    (provider) => provider.kind === "github",
+  );
+  const canConnectGitHub = canConnectGitHubProvider(githubProvider);
+
+  const connectGitHub = async () => {
+    if (selectedEnvironment === null) return;
+    const started = await startGitHubOAuth({
+      environmentId: selectedEnvironment.environmentId,
+      input: {},
+    });
+    if (started._tag !== "Success") {
+      Alert.alert("GitHub", "Could not start GitHub sign-in.");
+      return;
+    }
+    try {
+      await Linking.openURL(started.value.authorizeUrl);
+    } catch {
+      Alert.alert("GitHub", "Could not open the GitHub sign-in page.");
+    }
+  };
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") discoveryState.refresh();
+    });
+    return () => subscription.remove();
+  }, [discoveryState]);
 
   return (
     <AddProjectShell>
@@ -527,6 +570,11 @@ export function AddProjectSourceScreen() {
                       : (readiness[candidate].hint ?? "")
                   }
                   isFirst={false}
+                  onConnectGitHub={
+                    candidate === "github" && canConnectGitHub
+                      ? () => void connectGitHub()
+                      : undefined
+                  }
                 />
               ),
             )}

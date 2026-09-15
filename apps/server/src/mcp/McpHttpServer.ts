@@ -22,6 +22,8 @@ import {
   PreviewSnapshotToolkit,
   PreviewStandardToolkit,
 } from "./toolkits/preview/tools.ts";
+import { BackgroundAppsToolkitHandlersLive } from "./toolkits/backgroundApps/handlers.ts";
+import { BackgroundAppsToolkit } from "./toolkits/backgroundApps/tools.ts";
 
 const unauthorized = HttpServerResponse.jsonUnsafe(
   {
@@ -216,6 +218,10 @@ export const PreviewToolkitRegistrationLive = Layer.mergeAll(
   PreviewSnapshotRegistrationLive,
 );
 
+export const BackgroundAppsToolkitRegistrationLive = McpServer.toolkit(
+  BackgroundAppsToolkit,
+).pipe(Layer.provide(BackgroundAppsToolkitHandlersLive));
+
 const McpTransportLive = McpServer.layerHttp({
   name: "Coda",
   version: packageJson.version,
@@ -223,4 +229,7 @@ const McpTransportLive = McpServer.layerHttp({
   protocols: [McpProtocol.v2025_06_18],
 }).pipe(Layer.provide(McpAuthMiddlewareLive));
 
-export const layer = PreviewToolkitRegistrationLive.pipe(Layer.provideMerge(McpTransportLive));
+export const layer = Layer.mergeAll(
+  PreviewToolkitRegistrationLive,
+  BackgroundAppsToolkitRegistrationLive,
+).pipe(Layer.provideMerge(McpTransportLive));

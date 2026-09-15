@@ -4,6 +4,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import {
   SourceControlProviderError,
   type SourceControlProviderDiscoveryItem,
@@ -16,14 +17,43 @@ import * as BitbucketSourceControlProvider from "./BitbucketSourceControlProvide
 import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
 import * as GitLabSourceControlProvider from "./GitLabSourceControlProvider.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
+import * as GitHubCredentialStore from "./GitHubCredentialStore.ts";
+import { GitHubTenant } from "./GitHubTenant.ts";
 import {
   probeSourceControlProvider,
+  providerAuth,
   refineUnknownRemoteProvider,
   type SourceControlProviderDiscoverySpec,
 } from "./SourceControlProviderDiscovery.ts";
 import { ServerConfig } from "../config.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+
+function overlayManagedGitHubAuth(
+  items: ReadonlyArray<SourceControlProviderDiscoveryItem>,
+): Effect.Effect<ReadonlyArray<SourceControlProviderDiscoveryItem>> {
+  return Effect.gen(function* () {
+    const store = yield* Effect.serviceOption(GitHubCredentialStore.GitHubCredentialStore);
+    if (Option.isNone(store)) return items;
+    const tenant = yield* GitHubTenant;
+    if (tenant === null) return items;
+    const credential = yield* store.value.get(tenant.sessionId);
+    if (Option.isNone(credential)) return items;
+    return items.map((item) =>
+      item.kind === "github"
+        ? {
+            ...item,
+            auth: providerAuth({
+              status: "authenticated",
+              account: credential.value.account,
+              host: credential.value.host,
+              source: "managed",
+            }),
+          }
+        : item,
+    );
+  });
+}
 
 const PROVIDER_DETECTION_CACHE_CAPACITY = 2_048;
 const PROVIDER_DETECTION_CACHE_TTL = Duration.seconds(5);
@@ -287,7 +317,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
           }),
         ),
         { concurrency: "unbounded" },
-      ),
+      ).pipe(Effect.flatMap(overlayManagedGitHubAuth)),
     });
   },
 );

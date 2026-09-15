@@ -1,8 +1,9 @@
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import { EnvironmentId } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveAddProjectEnvironment } from "./AddProjectScreen.logic";
+import { canConnectGitHubProvider, resolveAddProjectEnvironment } from "./AddProjectScreen.logic";
 
 const ENVIRONMENT_A = EnvironmentId.make("environment-a");
 const ENVIRONMENT_B = EnvironmentId.make("environment-b");
@@ -37,5 +38,44 @@ describe("resolveAddProjectEnvironment", () => {
         null,
       )?.environmentId,
     ).toBe(ENVIRONMENT_B);
+  });
+});
+
+describe("canConnectGitHubProvider", () => {
+  it("offers Connect GitHub only when the CLI is present and this client is not signed in", () => {
+    expect(canConnectGitHubProvider(undefined)).toBe(false);
+    expect(
+      canConnectGitHubProvider({
+        kind: "github",
+        label: "GitHub",
+        status: "available",
+        version: Option.none(),
+        installHint: "brew install gh",
+        detail: Option.none(),
+        auth: {
+          status: "unauthenticated",
+          account: Option.none(),
+          host: Option.some("github.com"),
+          detail: Option.none(),
+        },
+      }),
+    ).toBe(true);
+    expect(
+      canConnectGitHubProvider({
+        kind: "github",
+        label: "GitHub",
+        status: "available",
+        version: Option.none(),
+        installHint: "brew install gh",
+        detail: Option.none(),
+        auth: {
+          status: "authenticated",
+          account: Option.some("octocat"),
+          host: Option.some("github.com"),
+          detail: Option.none(),
+          source: "managed",
+        },
+      }),
+    ).toBe(false);
   });
 });

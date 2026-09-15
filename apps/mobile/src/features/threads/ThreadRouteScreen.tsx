@@ -63,6 +63,7 @@ import { useSelectedThreadRequests } from "../../state/use-selected-thread-reque
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
 import { threadEnvironment } from "../../state/threads";
+import { backgroundAppsEnvironment } from "../../state/backgroundApps";
 import { projectThreadContentPresentation } from "./threadContentPresentation";
 import {
   useAdaptiveWorkspaceLayout,
@@ -214,6 +215,10 @@ function ThreadRouteContent(
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
+  const startBackgroundApp = useAtomCommand(
+    backgroundAppsEnvironment.start,
+    "background app start",
+  );
   const navigation = useNavigation();
   const params = props.route.params;
   const environmentIdRaw = firstRouteParam(params.environmentId);
@@ -539,6 +544,14 @@ function ThreadRouteContent(
     });
   }, [navigation, selectedThread, selectedThreadProject?.workspaceRoot, terminalMenuSessions]);
 
+  const handleOpenBackgroundApps = useCallback(() => {
+    if (!selectedThread) return;
+    void navigation.navigate("ThreadBackgroundApps", {
+      environmentId: String(selectedThread.environmentId),
+      threadId: String(selectedThread.id),
+    });
+  }, [navigation, selectedThread]);
+
   const handleRunProjectScript = useCallback(
     async (script: ProjectScript) => {
       terminalDebugLog("project-script:press", {
@@ -574,6 +587,24 @@ function ThreadRouteContent(
         project: { cwd: selectedThreadProject.workspaceRoot },
         worktreePath: preferredWorktreePath,
       });
+      if (script.runInBackground) {
+        await startBackgroundApp({
+          environmentId: selectedThread.environmentId,
+          input: {
+            id: `${selectedThread.id}:${script.id}`,
+            threadId: selectedThread.id,
+            projectId: selectedThread.projectId,
+            scriptId: script.id,
+            label: script.name,
+            command: script.command,
+            cwd,
+            worktreePath: preferredWorktreePath,
+            env,
+            ...(script.previewUrl ? { previewUrl: script.previewUrl } : {}),
+          },
+        });
+        return;
+      }
       stagePendingTerminalLaunch({
         target: {
           environmentId: selectedThread.environmentId,
@@ -605,6 +636,7 @@ function ThreadRouteContent(
       selectedThread,
       selectedThreadDetailWorktreePath,
       selectedThreadProject,
+      startBackgroundApp,
       terminalMenuSessions,
     ],
   );
@@ -631,6 +663,7 @@ function ThreadRouteContent(
     showDirectFileControl: layout.usesSplitView,
     onOpenTerminal: handleOpenTerminal,
     onOpenNewTerminal: handleOpenNewTerminal,
+    onOpenBackgroundApps: handleOpenBackgroundApps,
     onRunProjectScript: handleRunProjectScript,
     onPull: gitActions.onPullSelectedThreadBranch,
     onRunAction: gitActions.onRunSelectedThreadGitAction,

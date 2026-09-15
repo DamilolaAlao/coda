@@ -17,6 +17,7 @@ import { useResolveClassNames } from "uniwind";
 import { AppText as Text } from "./components/AppText";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRouteScreen";
+import { BackgroundAppsRouteScreen } from "./features/backgroundApps/BackgroundAppsRouteScreen";
 import { useAgentNotificationNavigation } from "./features/agent-awareness/notificationNavigation";
 import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
 import { useConnectOnboardingNavigation } from "./features/cloud/connectOnboardingNavigation";
@@ -483,6 +484,14 @@ export const RootStack = createNativeStackNavigator({
       screen: ThreadTerminalRouteScreen,
       linking: `${THREAD_LINKING_PREFIX}/terminal`,
       options: SOLID_HEADER_OPTIONS,
+    }),
+    ThreadBackgroundApps: createNativeStackScreen({
+      screen: BackgroundAppsRouteScreen,
+      linking: `${THREAD_LINKING_PREFIX}/apps`,
+      options: {
+        ...SHEET_GLASS_HEADER_OPTIONS,
+        title: "Background Apps",
+      },
     }),
     ThreadReview: createNativeStackScreen({
       screen: ReviewSheet,

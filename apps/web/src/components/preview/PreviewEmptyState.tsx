@@ -1,8 +1,16 @@
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import { matchBackgroundAppForServer } from "@t3tools/client-runtime/state/background-apps";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { Globe, History, RadioTower } from "lucide-react";
 
 import type { BrowserHistoryEntry } from "~/browserHistoryStore";
 import { Empty, EmptyDescription, EmptyMedia, EmptyTitle } from "~/components/ui/empty";
+import { backgroundAppEnvironment } from "~/state/backgroundApps";
+import { useEnvironmentQuery } from "~/state/query";
+import { useAtomCommand } from "~/state/use-atom-command";
 
 import { PreviewLocalServerCard } from "./PreviewLocalServerCard";
 import { PreviewRecentUrlCard } from "./PreviewRecentUrlCard";
@@ -29,6 +37,14 @@ export function PreviewEmptyState({
     environmentId,
     configuredUrls,
   });
+  const apps = useEnvironmentQuery(
+    backgroundAppEnvironment.list({
+      environmentId,
+      input: { threadId: threadRef.threadId },
+    }),
+  );
+  const stopApp = useAtomCommand(backgroundAppEnvironment.stop, { reportFailure: false });
+  const restartApp = useAtomCommand(backgroundAppEnvironment.restart, { reportFailure: false });
   const recents = recentEntries.filter((entry) => URL.canParse(entry.url)).slice(0, 8);
 
   if (servers.length === 0 && recents.length === 0) {
@@ -75,14 +91,48 @@ export function PreviewEmptyState({
               <h2 className="font-medium">Local servers</h2>
             </div>
             <div className="flex flex-col divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-background">
-              {servers.map((server) => (
-                <PreviewLocalServerCard
-                  key={`${server.host}:${server.port}`}
-                  threadRef={threadRef}
-                  server={server}
-                  onOpen={() => onOpenUrl(server.requestedUrl)}
-                />
-              ))}
+              {servers.map((server) => {
+                const app = matchBackgroundAppForServer(apps.data?.apps ?? [], server);
+                return (
+                  <PreviewLocalServerCard
+                    key={`${server.host}:${server.port}`}
+                    threadRef={threadRef}
+                    server={server}
+                    app={app}
+                    onOpen={() => onOpenUrl(server.requestedUrl)}
+                    {...(app?.capabilities.canRestart
+                      ? {
+                          onRestart: () => {
+                            void restartApp({
+                              environmentId,
+                              input: { appId: app.id },
+                            }).then((result) => {
+                              if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+                                squashAtomCommandFailure(result);
+                              }
+                              apps.refresh();
+                            });
+                          },
+                        }
+                      : {})}
+                    {...(app?.capabilities.canStop
+                      ? {
+                          onStop: () => {
+                            void stopApp({
+                              environmentId,
+                              input: { appId: app.id },
+                            }).then((result) => {
+                              if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+                                squashAtomCommandFailure(result);
+                              }
+                              apps.refresh();
+                            });
+                          },
+                        }
+                      : {})}
+                  />
+                );
+              })}
             </div>
             <p className="px-1 text-xs text-muted-foreground">
               Select a live local server to open it in this browser tab.

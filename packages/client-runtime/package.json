@@ -43,6 +43,10 @@
       "types": "./src/state/auth.ts",
       "default": "./src/state/auth.ts"
     },
+    "./state/background-apps": {
+      "types": "./src/state/backgroundApps.ts",
+      "default": "./src/state/backgroundApps.ts"
+    },
     "./state/assets": {
       "types": "./src/state/assets.ts",
       "default": "./src/state/assets.ts"

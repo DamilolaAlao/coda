@@ -34,6 +34,7 @@ import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
 import { layerConfig as SqlitePersistenceLayer } from "../persistence/Layers/Sqlite.ts";
+import * as GitHubOAuth from "../sourceControl/GitHubOAuth.ts";
 
 export const DEFAULT_SESSION_SUBJECT = "cli-issued-session";
 export const INTERNAL_ADMINISTRATIVE_BOOTSTRAP_SUBJECT = "administrative-bootstrap";
@@ -852,6 +853,16 @@ export const make = Effect.gen(function* () {
 
   const revokeSession: EnvironmentAuth["Service"]["revokeSession"] = (sessionId) =>
     sessions.revoke(sessionId).pipe(
+      Effect.tap(() =>
+        Effect.serviceOption(GitHubOAuth.GitHubOAuth).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.void,
+              onSome: (github) => github.revokeSessionCredential(sessionId),
+            }),
+          ),
+        ),
+      ),
       Effect.mapError((cause) => new ServerAuthSessionRevocationError({ cause })),
       Effect.withSpan("EnvironmentAuth.revokeSession"),
     );
@@ -859,7 +870,26 @@ export const make = Effect.gen(function* () {
   const revokeOtherSessionsExcept: EnvironmentAuth["Service"]["revokeOtherSessionsExcept"] = (
     sessionId,
   ) =>
-    sessions.revokeAllExcept(sessionId).pipe(
+    sessions.listActive().pipe(
+      Effect.flatMap((activeSessions) =>
+        sessions.revokeAllExcept(sessionId).pipe(
+          Effect.tap(() =>
+            Effect.serviceOption(GitHubOAuth.GitHubOAuth).pipe(
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.void,
+                  onSome: (github) =>
+                    Effect.forEach(
+                      activeSessions.filter((session) => session.sessionId !== sessionId),
+                      (session) => github.revokeSessionCredential(session.sessionId),
+                      { concurrency: "unbounded", discard: true },
+                    ),
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
       Effect.mapError((cause) => new ServerAuthOtherSessionsRevocationError({ cause })),
       Effect.withSpan("EnvironmentAuth.revokeOtherSessionsExcept"),
     );

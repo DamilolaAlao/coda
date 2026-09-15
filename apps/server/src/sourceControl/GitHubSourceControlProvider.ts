@@ -53,6 +53,7 @@ function parseGitHubAuth(input: SourceControlAuthProbeInput) {
       status: "authenticated",
       account: authenticatedAccount.account,
       host,
+      source: "host",
     });
   }
 
@@ -63,7 +64,7 @@ function parseGitHubAuth(input: SourceControlAuthProbeInput) {
       host: failedAccount?.host,
       detail:
         failedAccount?.error ??
-        "Run `gh auth login` to authenticate GitHub CLI with an active account.",
+        "Connect GitHub in Settings, or run `gh auth login` on the server as a shared fallback.",
     });
   }
 
@@ -71,7 +72,9 @@ function parseGitHubAuth(input: SourceControlAuthProbeInput) {
     return providerAuth({
       status: "unauthenticated",
       host,
-      detail: firstSafeAuthLine(output) ?? "Run `gh auth login` to authenticate GitHub CLI.",
+      detail:
+        firstSafeAuthLine(output) ??
+        "Connect GitHub in Settings, or run `gh auth login` on the server.",
     });
   }
 

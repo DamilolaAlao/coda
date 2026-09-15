@@ -220,6 +220,18 @@ describe("rightPanelStore", () => {
     ]);
   });
 
+  it("opens Apps as a singleton surface", () => {
+    useRightPanelStore.getState().open(refA, "apps");
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("apps");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces).toEqual([
+      { id: "apps", kind: "apps" },
+    ]);
+    useRightPanelStore.getState().open(refA, "apps");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces).toEqual([
+      { id: "apps", kind: "apps" },
+    ]);
+  });
+
   it("open sets the active panel for a thread", () => {
     useRightPanelStore.getState().open(refA, "preview");
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("preview");

@@ -2,6 +2,7 @@ import type { ContextMenuItem, PreviewSessionSnapshot, PullRequestState } from "
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import {
   Bot,
+  Boxes,
   FileDiff,
   Files,
   GitPullRequest,
@@ -66,6 +67,7 @@ interface RightPanelTabsProps {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddAgents: () => void;
+  onAddApps: () => void;
   onAddHttp: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
@@ -73,10 +75,12 @@ interface RightPanelTabsProps {
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
+  appsAvailable: boolean;
   httpAvailable: boolean;
   pullRequestStatuses?: Readonly<Record<string, PullRequestTabStatus>>;
   /** Running + waiting subagents; badges the Agents card in the empty state. */
   liveAgentCount: number;
+  runningAppCount: number;
   children: ReactNode;
 }
 
@@ -95,6 +99,7 @@ const SURFACE_DISABLED_REASONS = {
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
   agents: "Agents are only available from a thread.",
+  apps: "Apps are only available from a thread.",
   http: "HTTP is only available from a thread.",
 } as const;
 
@@ -118,6 +123,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
   agents: "Available from a thread.",
+  apps: "Available from a thread.",
   http: "Available from a thread.",
 } as const;
 
@@ -165,6 +171,7 @@ function RightPanelEmptyState(props: {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddAgents: () => void;
+  onAddApps: () => void;
   onAddHttp: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
@@ -172,8 +179,10 @@ function RightPanelEmptyState(props: {
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
+  appsAvailable: boolean;
   httpAvailable: boolean;
   liveAgentCount: number;
+  runningAppCount: number;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
@@ -238,6 +247,16 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.agents,
       onClick: props.onAddAgents,
       badgeCount: props.liveAgentCount,
+    },
+    {
+      label: "Apps",
+      description: "Manage background apps and logs.",
+      icon: Boxes,
+      shortcut: "R",
+      available: props.appsAvailable,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.apps,
+      onClick: props.onAddApps,
+      badgeCount: props.runningAppCount,
     },
     {
       label: "HTTP",
@@ -443,6 +462,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "agents":
       return "Agents";
+    case "apps":
+      return "Apps";
     case "http":
       return "HTTP";
     case "preview": {
@@ -530,6 +551,8 @@ function SurfaceIcon({
     }
     case "agents":
       return <Bot className="size-3 shrink-0" />;
+    case "apps":
+      return <Boxes className="size-3 shrink-0" />;
     case "http":
       return <Unplug className="size-3 shrink-0" />;
   }
@@ -765,6 +788,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     Agents
                   </SurfaceMenuItem>
                   <SurfaceMenuItem
+                    available={props.appsAvailable}
+                    disabledReason={SURFACE_DISABLED_REASONS.apps}
+                    onClick={props.onAddApps}
+                  >
+                    <Boxes />
+                    Apps
+                  </SurfaceMenuItem>
+                  <SurfaceMenuItem
                     available={props.httpAvailable}
                     disabledReason={SURFACE_DISABLED_REASONS.http}
                     onClick={props.onAddHttp}
@@ -788,6 +819,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddFiles={props.onAddFiles}
             onAddPullRequest={props.onAddPullRequest}
             onAddAgents={props.onAddAgents}
+            onAddApps={props.onAddApps}
             onAddHttp={props.onAddHttp}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
@@ -795,8 +827,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             filesAvailable={props.filesAvailable}
             pullRequestAvailable={props.pullRequestAvailable}
             agentsAvailable={props.agentsAvailable}
+            appsAvailable={props.appsAvailable}
             httpAvailable={props.httpAvailable}
             liveAgentCount={props.liveAgentCount}
+            runningAppCount={props.runningAppCount}
           />
         ) : (
           props.children

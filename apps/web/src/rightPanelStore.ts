@@ -22,6 +22,7 @@ export const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "agents",
+  "apps",
   "http",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
@@ -64,6 +65,7 @@ export type RightPanelSurface =
       number: number;
     }
   | { id: "agents"; kind: "agents" }
+  | { id: "apps"; kind: "apps" }
   | { id: "http"; kind: "http" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
@@ -138,6 +140,8 @@ const singletonSurface = (
       return { id: "files", kind };
     case "agents":
       return { id: "agents", kind };
+    case "apps":
+      return { id: "apps", kind };
     case "http":
       return { id: "http", kind };
   }

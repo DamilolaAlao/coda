@@ -113,13 +113,40 @@ export const SourceControlProviderAuthStatus = Schema.Literals([
 ]);
 export type SourceControlProviderAuthStatus = typeof SourceControlProviderAuthStatus.Type;
 
+export const SourceControlGitHubAuthSource = Schema.Literals(["managed", "host"]);
+export type SourceControlGitHubAuthSource = typeof SourceControlGitHubAuthSource.Type;
+
 export const SourceControlProviderAuth = Schema.Struct({
   status: SourceControlProviderAuthStatus,
   account: Schema.Option(TrimmedNonEmptyString),
   host: Schema.Option(TrimmedNonEmptyString),
   detail: Schema.Option(TrimmedNonEmptyString),
+  source: Schema.optionalKey(SourceControlGitHubAuthSource),
 });
 export type SourceControlProviderAuth = typeof SourceControlProviderAuth.Type;
+
+export const SourceControlStartGitHubOAuthResult = Schema.Struct({
+  authorizeUrl: TrimmedNonEmptyString,
+});
+export type SourceControlStartGitHubOAuthResult = typeof SourceControlStartGitHubOAuthResult.Type;
+
+export const SourceControlDisconnectGitHubResult = Schema.Struct({
+  disconnected: Schema.Boolean,
+});
+export type SourceControlDisconnectGitHubResult = typeof SourceControlDisconnectGitHubResult.Type;
+
+export class GitHubOAuthError extends Schema.TaggedErrorClass<GitHubOAuthError>()(
+  "GitHubOAuthError",
+  {
+    operation: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `GitHub OAuth ${this.operation} failed: ${this.detail}`;
+  }
+}
 
 const SourceControlDiscoverySharedFields = {
   label: TrimmedNonEmptyString,

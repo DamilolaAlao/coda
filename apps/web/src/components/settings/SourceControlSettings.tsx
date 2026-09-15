@@ -4,6 +4,7 @@ import * as Option from "effect/Option";
 import { useState, type ReactNode } from "react";
 import type {
   BackgroundActivitySettings,
+  EnvironmentId,
   SourceControlProviderKind,
   SourceControlDiscoveryResult,
   SourceControlProviderAuth,
@@ -20,12 +21,17 @@ import {
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import {
-  useEnvironmentHttpBaseUrl,
   useEnvironments,
   usePrimaryEnvironment,
 } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { sourceControlEnvironment } from "../../state/sourceControl";
+import { useAtomCommand } from "../../state/use-atom-command";
+import {
+  canDisconnectManagedGitHub,
+  githubAuthSourceLabel,
+  parseGitHubOAuthCompletionMessage,
+} from "./SourceControlSettings.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
@@ -218,6 +224,7 @@ function itemSummary({
 
   if (auth) {
     if (auth.status === "authenticated") {
+      const sourceLabel = githubAuthSourceLabel(auth.source);
       return (
         <>
           <span>Authenticated</span>
@@ -227,6 +234,7 @@ function itemSummary({
               <RedactedAccount account={authAccount} />
             </>
           ) : null}
+          {sourceLabel ? <span>({sourceLabel})</span> : null}
         </>
       );
     }
@@ -334,45 +342,86 @@ function DiscoveryItemRow({
   );
 }
 
+const GITHUB_OAUTH_POPUP_NAME = "t3-github-oauth";
+
+function openGitHubAuthorizePopup(authorizeUrl: string) {
+  return new Promise<"connected" | "failed" | "dismissed">((resolve) => {
+    const popup = window.open(authorizeUrl, GITHUB_OAUTH_POPUP_NAME, "popup=yes,width=600,height=760");
+    if (popup === null) {
+      window.location.assign(authorizeUrl);
+      return;
+    }
+    const onMessage = (event: MessageEvent) => {
+      const result = parseGitHubOAuthCompletionMessage(event.data);
+      if (result === null) return;
+      cleanup();
+      resolve(result);
+    };
+    const timer = window.setInterval(() => {
+      if (popup.closed) {
+        cleanup();
+        resolve("dismissed");
+      }
+    }, 400);
+    const cleanup = () => {
+      window.removeEventListener("message", onMessage);
+      window.clearInterval(timer);
+    };
+    window.addEventListener("message", onMessage);
+  });
+}
+
 function GitHubAuthActions({
   item,
+  environmentId,
   onScan,
-  authBaseUrl,
 }: {
   readonly item: SourceControlProviderDiscoveryItem;
+  readonly environmentId: EnvironmentId;
   readonly onScan: () => void;
-  readonly authBaseUrl: string;
 }) {
-  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
+  const startGitHubOAuth = useAtomCommand(sourceControlEnvironment.startGitHubOAuth, {
+    reportFailure: false,
+  });
+  const disconnectGitHub = useAtomCommand(sourceControlEnvironment.disconnectGitHub, {
+    reportFailure: false,
+  });
+  const isManagedDisconnect = canDisconnectManagedGitHub(item.auth);
   const isAuthenticated = item.auth.status === "authenticated";
 
-  const disconnect = async () => {
-    setIsDisconnecting(true);
+  const connect = async () => {
+    setIsBusy(true);
     try {
-      const response = await fetch(new URL("/api/auth/github/logout", authBaseUrl), {
-        method: "POST",
-      });
-      if (response.ok) onScan();
+      const started = await startGitHubOAuth({ environmentId, input: {} });
+      if (started._tag !== "Success") return;
+      const result = await openGitHubAuthorizePopup(started.value.authorizeUrl);
+      if (result !== "failed") onScan();
     } finally {
-      setIsDisconnecting(false);
+      setIsBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    setIsBusy(true);
+    try {
+      const result = await disconnectGitHub({ environmentId, input: {} });
+      if (result._tag === "Success") onScan();
+    } finally {
+      setIsBusy(false);
     }
   };
 
   return (
     <div className="flex items-center gap-2">
-      {isAuthenticated ? (
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={() => void disconnect()}
-          disabled={isDisconnecting}
-        >
+      {isAuthenticated && isManagedDisconnect ? (
+        <Button size="xs" variant="outline" onClick={() => void disconnect()} disabled={isBusy}>
           <LogOutIcon className="size-3.5" />
-          {isDisconnecting ? "Disconnecting…" : "Disconnect"}
+          {isBusy ? "Disconnecting…" : "Disconnect"}
         </Button>
       ) : (
-        <Button size="xs" render={<a href={new URL("/api/auth/github", authBaseUrl).toString()} />}>
-          Connect GitHub
+        <Button size="xs" onClick={() => void connect()} disabled={isBusy}>
+          {isBusy ? "Connecting…" : "Connect GitHub"}
         </Button>
       )}
     </div>
@@ -549,12 +598,6 @@ export function SourceControlSettingsPanel() {
     null;
   const environmentId =
     primaryEnvironment?.environmentId ?? fallbackEnvironment?.environmentId ?? null;
-  const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
-  const sameOriginAuthBaseUrl =
-    environmentHttpBaseUrl !== null &&
-    new URL(environmentHttpBaseUrl, window.location.href).origin === window.location.origin
-      ? environmentHttpBaseUrl
-      : null;
   const isPrimaryEnvironment = environmentId === primaryEnvironment?.environmentId;
   const discovery = useEnvironmentQuery(
     environmentId === null
@@ -623,13 +666,11 @@ export function SourceControlSettingsPanel() {
             >
               {result.sourceControlProviders.map((item) => (
                 <DiscoveryItemRow key={`provider:${item.kind}`} item={item}>
-                  {item.kind === "github" &&
-                  item.status === "available" &&
-                  sameOriginAuthBaseUrl !== null ? (
+                  {item.kind === "github" && item.status === "available" && environmentId !== null ? (
                     <GitHubAuthActions
                       item={item}
+                      environmentId={environmentId}
                       onScan={handleScan}
-                      authBaseUrl={sameOriginAuthBaseUrl}
                     />
                   ) : undefined}
                 </DiscoveryItemRow>

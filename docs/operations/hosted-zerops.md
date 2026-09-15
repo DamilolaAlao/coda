@@ -20,7 +20,7 @@ Never put a live pairing PIN or deploy token in git.
 | `T3CODE_PUBLIC_URL`    | Public `https://` origin. Used as the pairing JWT audience. Same sources as the PIN.                                                                         |
 | `GITHUB_CLIENT_ID`     | Client ID for the GitHub OAuth app used by Settings → Source Control. Set in the Zerops service env UI.                                                      |
 | `GITHUB_CLIENT_SECRET` | Client secret for the GitHub OAuth app. Set in the Zerops service env UI.                                                                                    |
-| `GITHUB_REDIRECT_URI`  | Exact public callback URL: `https://<stack-host>/api/auth/github/callback`. Set in Zerops and register the same URL in the GitHub OAuth app.                 |
+| `GITHUB_REDIRECT_URI`  | Exact public callback URL: `https://<stack-host>/api/auth/github/callback`. Set in Zerops and register the same URL in the GitHub OAuth app. The callback stays public HTTP; Connect GitHub itself is an authenticated RPC that stores a one-time state for that client session. |
 | Zerops token           | `zcli login`, not the repo                                                                                                                                   |
 
 Copy [`deploy/zerops/.env.example`](../../deploy/zerops/.env.example) to
@@ -85,7 +85,12 @@ Then deploy `stack` as usual; `zerops.yml` wires the mount.
 
 | Path                         | Role                                                 |
 | ---------------------------- | ---------------------------------------------------- |
-| `/srv/coda-data/.t3`         | `T3CODE_HOME` — pairing keys, SQLite, settings       |
+| `/srv/coda-data/.t3`         | `T3CODE_HOME` — pairing keys, SQLite, settings, and per-session GitHub OAuth tokens under `userdata/secrets` |
+
+GitHub OAuth tokens persist across container replacement through `T3CODE_HOME`, not
+`HOME/.config/gh`. A leftover host-level `gh auth login` is a shared compatibility fallback only;
+managed per-session OAuth records stay isolated and take precedence. Revoking a paired Coda
+session also revokes that session's GitHub app token when possible.
 | `/srv/coda-data/coda`        | `HOME` — agent project workspace (`~/`)              |
 | `/srv/coda-data/deployments` | `CODA_DEPLOYMENTS_HOME` — zcli/fly/railway XDG state |
 | `/srv/coda-data/hermes`      | `HERMES_HOME` — Hermes config and secrets            |

@@ -74,14 +74,21 @@ Run a quick **Rescan** after setting up a new machine or changing credentials.
 2. Open **Settings → Source Control** and choose **Connect GitHub**. Your server administrator
    must configure a GitHub OAuth app for this button to work.
 
-   If browser sign-in is not configured, sign in from a terminal on the Coda server:
+   Connect GitHub signs in **this Coda client**. Each paired web, desktop, or mobile session keeps
+   its own GitHub account. Disconnecting or revoking that session removes only that client's
+   GitHub access.
+
+   If browser sign-in is not configured, the server can still use a shared GitHub CLI login as a
+   compatibility fallback:
 
    ```bash
    gh auth login
    ```
 
-3. Verify GitHub shows as authenticated. Use **Disconnect** on the same page to remove the account
-   from the server.
+   Managed Connect GitHub credentials always take priority over that host-level login.
+
+3. Verify GitHub shows as authenticated for this client. Use **Disconnect** on the same page to
+   remove this client's GitHub account. That does not sign out a host-level `gh auth login`.
 
 You can now clone, publish, and create pull requests.
 
@@ -140,11 +147,11 @@ Control settings**.
 
 **Git is required** – Coda uses Git for all local operations. Ensure `git` is installed on your server.
 
-**Server-side setup** – Authentication happens on the machine running Coda (the server), not your local browser. If you're using a hosted or team instance, your administrator may have already configured providers.
+**Server-side setup** – Connect GitHub is per paired client. Other providers still authenticate on the machine running Coda. If you're using a hosted or team instance, your administrator may have already configured the GitHub OAuth app and callback URL.
 
 **Common issues:**
 
-- **Provider shows "Not authenticated"** – Run the login command for that provider (e.g., `gh auth login`) in a terminal on the server, then rescan in Settings
+- **Provider shows "Not authenticated"** – Choose **Connect GitHub** in Settings for this client, or run the login command for that provider (e.g. `gh auth login`) in a terminal on the server as a shared fallback, then rescan in Settings
 - **Bitbucket not connecting** – Double-check your environment variables are set in the correct shell profile and the server was restarted
 - **Can't push to a remote** – Verify your Git remote URL matches the provider you've authenticated with (SSH vs HTTPS remotes may need different credentials)
 

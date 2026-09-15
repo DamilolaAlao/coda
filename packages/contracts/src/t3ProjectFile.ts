@@ -42,6 +42,11 @@ export const T3ProjectFileScript = Schema.Struct({
         "When true, the script runs automatically after a worktree is created for a new thread.",
     }),
   ),
+  runInBackground: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description: "When true, Coda manages the script as a background app.",
+    }),
+  ),
   previewUrl: Schema.optionalKey(
     trimmedNonEmpty({
       description:

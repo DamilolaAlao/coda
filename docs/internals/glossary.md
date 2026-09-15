@@ -8,6 +8,7 @@ This is a living glossary for Coda. It explains what common terms mean in this c
 
 - [Project and workspace](#project-and-workspace)
 - [Thread timeline](#thread-timeline)
+- [Background apps](#background-apps)
 - [Orchestration](#orchestration)
 - [Provider runtime](#provider-runtime)
 - [Checkpointing](#checkpointing)
@@ -27,6 +28,12 @@ The root filesystem path for a project. In [the orchestration model][1], it is t
 #### Worktree
 
 A Git worktree used as an isolated workspace for a thread. If a thread has a `worktreePath` in [the contracts][1], it runs there instead of in the main working tree. Git operations live behind the VCS driver contract in `apps/server/src/vcs/VcsDriver.ts`, implemented by [GitVcsDriverCore.ts][3].
+
+### Background apps
+
+#### Background app
+
+A long-running workspace process (dev server, watcher) tracked by [BackgroundAppService.ts](../../apps/server/src/backgroundApps/BackgroundAppService.ts). Managed apps are started through Coda with a stored launch spec; discovered apps are listeners attributed to a Coda terminal. See [background-apps.md](./background-apps.md).
 
 ### Thread timeline
 

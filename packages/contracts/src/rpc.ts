@@ -14,6 +14,17 @@ import {
   HostPowerSnapshot,
 } from "./background.ts";
 import {
+  BackgroundAppError,
+  BackgroundAppEvent,
+  BackgroundAppListInput,
+  BackgroundAppListResult,
+  BackgroundAppLogEvent,
+  BackgroundAppLogInput,
+  BackgroundAppSnapshot,
+  BackgroundAppStartInput,
+  BackgroundAppTargetInput,
+} from "./backgroundApps.ts";
+import {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
   FilesystemBrowseError,
@@ -180,14 +191,17 @@ import {
 import { UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
+  GitHubOAuthError,
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
+  SourceControlDisconnectGitHubResult,
   SourceControlDiscoveryResult,
   SourceControlPublishRepositoryInput,
   SourceControlPublishRepositoryResult,
   SourceControlRepositoryError,
   SourceControlRepositoryInfo,
   SourceControlRepositoryLookupInput,
+  SourceControlStartGitHubOAuthResult,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
 
@@ -236,6 +250,14 @@ export const WS_METHODS = {
   terminalClear: "terminal.clear",
   terminalRestart: "terminal.restart",
   terminalClose: "terminal.close",
+
+  // Background app methods
+  backgroundAppsList: "backgroundApps.list",
+  backgroundAppsStart: "backgroundApps.start",
+  backgroundAppsStop: "backgroundApps.stop",
+  backgroundAppsRestart: "backgroundApps.restart",
+  backgroundAppsLogs: "backgroundApps.logs",
+  subscribeBackgroundApps: "subscribeBackgroundApps",
 
   // Preview methods
   previewOpen: "preview.open",
@@ -298,6 +320,8 @@ export const WS_METHODS = {
   sourceControlLookupRepository: "sourceControl.lookupRepository",
   sourceControlCloneRepository: "sourceControl.cloneRepository",
   sourceControlPublishRepository: "sourceControl.publishRepository",
+  sourceControlStartGitHubOAuth: "sourceControl.startGitHubOAuth",
+  sourceControlDisconnectGitHub: "sourceControl.disconnectGitHub",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -609,6 +633,24 @@ export const WsSourceControlPublishRepositoryRpc = Rpc.make(
   },
 );
 
+export const WsSourceControlStartGitHubOAuthRpc = Rpc.make(
+  WS_METHODS.sourceControlStartGitHubOAuth,
+  {
+    payload: Schema.Struct({}),
+    success: SourceControlStartGitHubOAuthResult,
+    error: Schema.Union([GitHubOAuthError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsSourceControlDisconnectGitHubRpc = Rpc.make(
+  WS_METHODS.sourceControlDisconnectGitHub,
+  {
+    payload: Schema.Struct({}),
+    success: SourceControlDisconnectGitHubResult,
+    error: Schema.Union([GitHubOAuthError, EnvironmentAuthorizationError]),
+  },
+);
+
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
   success: ProjectSearchEntriesResult,
@@ -823,6 +865,44 @@ export const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus,
   error: Schema.Union([PreviewError, EnvironmentAuthorizationError]),
 });
 
+export const WsBackgroundAppsListRpc = Rpc.make(WS_METHODS.backgroundAppsList, {
+  payload: BackgroundAppListInput,
+  success: BackgroundAppListResult,
+  error: Schema.Union([BackgroundAppError, EnvironmentAuthorizationError]),
+});
+
+export const WsBackgroundAppsStartRpc = Rpc.make(WS_METHODS.backgroundAppsStart, {
+  payload: BackgroundAppStartInput,
+  success: BackgroundAppSnapshot,
+  error: Schema.Union([BackgroundAppError, EnvironmentAuthorizationError]),
+});
+
+export const WsBackgroundAppsStopRpc = Rpc.make(WS_METHODS.backgroundAppsStop, {
+  payload: BackgroundAppTargetInput,
+  success: BackgroundAppSnapshot,
+  error: Schema.Union([BackgroundAppError, EnvironmentAuthorizationError]),
+});
+
+export const WsBackgroundAppsRestartRpc = Rpc.make(WS_METHODS.backgroundAppsRestart, {
+  payload: BackgroundAppTargetInput,
+  success: BackgroundAppSnapshot,
+  error: Schema.Union([BackgroundAppError, EnvironmentAuthorizationError]),
+});
+
+export const WsBackgroundAppsLogsRpc = Rpc.make(WS_METHODS.backgroundAppsLogs, {
+  payload: BackgroundAppLogInput,
+  success: BackgroundAppLogEvent,
+  error: Schema.Union([BackgroundAppError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+export const WsSubscribeBackgroundAppsRpc = Rpc.make(WS_METHODS.subscribeBackgroundApps, {
+  payload: BackgroundAppListInput,
+  success: BackgroundAppEvent,
+  error: Schema.Union([BackgroundAppError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
 export const WsPreviewAutomationConnectRpc = Rpc.make(WS_METHODS.previewAutomationConnect, {
   payload: PreviewAutomationHost,
   success: PreviewAutomationStreamEvent,
@@ -1016,6 +1096,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsSourceControlLookupRepositoryRpc,
   WsSourceControlCloneRepositoryRpc,
   WsSourceControlPublishRepositoryRpc,
+  WsSourceControlStartGitHubOAuthRpc,
+  WsSourceControlDisconnectGitHubRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,
@@ -1047,6 +1129,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalCloseRpc,
   WsSubscribeTerminalEventsRpc,
   WsSubscribeTerminalMetadataRpc,
+  WsBackgroundAppsListRpc,
+  WsBackgroundAppsStartRpc,
+  WsBackgroundAppsStopRpc,
+  WsBackgroundAppsRestartRpc,
+  WsBackgroundAppsLogsRpc,
+  WsSubscribeBackgroundAppsRpc,
   WsPreviewOpenRpc,
   WsPreviewNavigateRpc,
   WsPreviewResizeRpc,

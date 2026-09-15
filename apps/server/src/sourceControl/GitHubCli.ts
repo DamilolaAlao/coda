@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -12,6 +13,11 @@ import {
 } from "@t3tools/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import {
+  GitHubCredentialStore,
+  githubProcessEnv,
+  resolveGitHubProcessCredential,
+} from "./GitHubCredentialStore.ts";
 import {
   decodeGitHubPullRequestJson,
   decodeGitHubPullRequestListJson,
@@ -43,7 +49,7 @@ export class GitHubCliAuthenticationError extends Schema.TaggedErrorClass<GitHub
   gitHubCliFailureFields,
 ) {
   get detail(): string {
-    return "GitHub CLI is not authenticated. Run `gh auth login` and retry.";
+    return "GitHub CLI is not authenticated. Connect GitHub in Settings, or run `gh auth login` on the server.";
   }
 
   override get message(): string {
@@ -325,19 +331,27 @@ function deriveRepositoryCloneUrlsFromCreateOutput(
 
 export const make = Effect.gen(function* () {
   const process = yield* VcsProcess.VcsProcess;
+  const store = yield* GitHubCredentialStore;
 
   const execute: GitHubCli["Service"]["execute"] = (input) =>
-    process
-      .run({
-        operation: "GitHubCli.execute",
-        command: "gh",
-        args: input.args,
-        cwd: input.cwd,
-        timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
-        ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),
-      })
-      .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error)));
+    resolveGitHubProcessCredential(store, input.cwd).pipe(
+      Effect.flatMap((credential) =>
+        process
+          .run({
+            operation: "GitHubCli.execute",
+            command: "gh",
+            args: input.args,
+            cwd: input.cwd,
+            timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+            ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),
+            ...(Option.isSome(credential)
+              ? { env: githubProcessEnv(credential.value.token) }
+              : {}),
+          })
+          .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error))),
+      ),
+    );
 
   return GitHubCli.of({
     execute,

@@ -3,10 +3,13 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { VcsProcessExitError, VcsProcessSpawnError } from "@t3tools/contracts";
+import { AuthSessionId, VcsProcessExitError, VcsProcessSpawnError } from "@t3tools/contracts";
 
+import * as Option from "effect/Option";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubCli from "./GitHubCli.ts";
+import * as GitHubCredentialStore from "./GitHubCredentialStore.ts";
+import { GitHubTenant } from "./GitHubTenant.ts";
 
 const processOutput = (stdout: string): VcsProcess.VcsProcessOutput => ({
   exitCode: ChildProcessSpawner.ExitCode(0),
@@ -17,6 +20,16 @@ const processOutput = (stdout: string): VcsProcess.VcsProcessOutput => ({
 });
 
 const mockRun = vi.fn<VcsProcess.VcsProcess["Service"]["run"]>();
+const TENANT_SESSION = AuthSessionId.make("github-cli-tenant");
+const TENANT_TOKEN = "gho_test_tenant_token";
+
+const emptyCredentialStore = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+  get: () => Effect.succeed(Option.none()),
+  set: () => Effect.void,
+  remove: () => Effect.void,
+  createOAuthState: () => Effect.succeed({ state: "unused" }),
+  consumeOAuthState: () => Effect.succeed(Option.none()),
+});
 
 const layer = GitHubCli.layer.pipe(
   Layer.provide(
@@ -24,6 +37,7 @@ const layer = GitHubCli.layer.pipe(
       run: mockRun,
     }),
   ),
+  Layer.provide(emptyCredentialStore),
 );
 
 afterEach(() => {
@@ -403,4 +417,60 @@ describe("GitHubCli.layer", () => {
       assert.notInclude(error.message, "user ID");
     }).pipe(Effect.provide(layer)),
   );
+
+  it.effect("injects the tenant token through GH_TOKEN and never argv", () => {
+    const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+      get: (sessionId) =>
+        Effect.succeed(
+          sessionId === TENANT_SESSION
+            ? Option.some({
+                version: 1 as const,
+                sessionId: TENANT_SESSION,
+                token: TENANT_TOKEN,
+                tokenType: "bearer",
+                scope: "repo",
+                account: "octocat",
+                host: "github.com",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              })
+            : Option.none(),
+        ),
+      set: () => Effect.void,
+      remove: () => Effect.void,
+      createOAuthState: () => Effect.succeed({ state: "unused" }),
+      consumeOAuthState: () => Effect.succeed(Option.none()),
+    });
+    return Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(
+        Effect.succeed(processOutput("https://github.com/octocat/hello-world\n")),
+      );
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.getDefaultBranch({ cwd: "/repo" });
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+        env: {
+          GH_TOKEN: TENANT_TOKEN,
+          GH_HOST: "github.com",
+        },
+      });
+      expect(mockRun.mock.calls[0]?.[0].args.join(" ")).not.toContain(TENANT_TOKEN);
+    }).pipe(
+      Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),
+      Effect.provide(
+        GitHubCli.layer.pipe(
+          Layer.provide(
+            Layer.mock(VcsProcess.VcsProcess)({
+              run: mockRun,
+            }),
+          ),
+          Layer.provide(store),
+        ),
+      ),
+    );
+  });
 });

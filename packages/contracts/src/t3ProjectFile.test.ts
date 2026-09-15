@@ -16,6 +16,7 @@ describe("T3ProjectFile", () => {
           command: "pnpm dev",
           icon: "play",
           runOnWorktreeCreate: false,
+          runInBackground: true,
           previewUrl: "http://localhost:3000",
           autoOpenPreview: true,
         },
@@ -25,6 +26,7 @@ describe("T3ProjectFile", () => {
 
     expect(decoded.iconPath).toBe("assets/logo.svg");
     expect(decoded.scripts).toHaveLength(2);
+    expect(decoded.scripts?.[0]?.runInBackground).toBe(true);
     expect(decoded.scripts?.[1]).toEqual({ name: "Test", command: "pnpm test" });
   });
 

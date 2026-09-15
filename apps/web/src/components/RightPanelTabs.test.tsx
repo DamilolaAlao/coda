@@ -78,14 +78,17 @@ function renderTabs(first: DesktopPreviewFavicon | null, second?: DesktopPreview
       onAddDiff={() => undefined}
       onAddFiles={() => undefined}
       onAddAgents={() => undefined}
+      onAddApps={() => undefined}
       onAddHttp={() => undefined}
       liveAgentCount={0}
+      runningAppCount={0}
       browserAvailable
       terminalAvailable={false}
       diffAvailable={false}
       filesAvailable={false}
       pullRequestAvailable={false}
       agentsAvailable={false}
+      appsAvailable={false}
       httpAvailable={false}
     >
       <div>content</div>

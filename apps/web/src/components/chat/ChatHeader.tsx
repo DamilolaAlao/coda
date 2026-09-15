@@ -11,7 +11,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { ChangeRequestStateLike } from "@t3tools/client-runtime/state/thread-settled";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, Boxes } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -43,6 +43,7 @@ import {
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
+import { Button } from "../ui/button";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -72,6 +73,9 @@ interface ChatHeaderProps {
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  runningAppCount?: number;
+  onOpenApps?: () => void;
+  appsShortcutLabel?: string | null;
 }
 
 /**
@@ -130,6 +134,9 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  runningAppCount = 0,
+  onOpenApps,
+  appsShortcutLabel,
 }: ChatHeaderProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const fileScripts = useT3ProjectFileScripts(
@@ -318,6 +325,42 @@ export const ChatHeader = memo(function ChatHeader({
           rightPanelOpen ? "pr-0" : "pr-16",
         )}
       >
+        {onOpenApps ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={
+                    runningAppCount > 0
+                      ? `${runningAppCount} background ${runningAppCount === 1 ? "app" : "apps"} running`
+                      : "Open background apps"
+                  }
+                  onClick={onOpenApps}
+                  className="relative"
+                >
+                  <Boxes className="size-4" />
+                  {runningAppCount > 0 ? (
+                    <span
+                      aria-hidden
+                      className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-info px-1 text-[9px] font-semibold tabular-nums text-white"
+                    >
+                      {runningAppCount}
+                    </span>
+                  ) : null}
+                </Button>
+              }
+            />
+            <TooltipPopup side="bottom">
+              {runningAppCount > 0
+                ? `${runningAppCount} background ${runningAppCount === 1 ? "app" : "apps"} running`
+                : "Background apps"}
+              {appsShortcutLabel ? ` (${appsShortcutLabel})` : ""}
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}

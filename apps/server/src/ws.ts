@@ -15,6 +15,9 @@ import {
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
+  type BackgroundAppError,
+  type BackgroundAppEvent,
+  type BackgroundAppLogEvent,
   CommandId,
   type DiscoveredLocalServerList,
   EventId,
@@ -85,6 +88,7 @@ import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as BackgroundApps from "./backgroundApps/BackgroundAppService.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import { issueAssetUrl } from "./assets/AssetAccess.ts";
@@ -114,6 +118,9 @@ import * as SourceControlRepositoryService from "./sourceControl/SourceControlRe
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
 import * as BitbucketApi from "./sourceControl/BitbucketApi.ts";
 import * as GitHubCli from "./sourceControl/GitHubCli.ts";
+import * as GitHubCredentialStore from "./sourceControl/GitHubCredentialStore.ts";
+import * as GitHubOAuth from "./sourceControl/GitHubOAuth.ts";
+import { GitHubTenant } from "./sourceControl/GitHubTenant.ts";
 import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
@@ -368,6 +375,7 @@ const makeWsRpcLayer = (
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager.TerminalManager;
+      const backgroundApps = yield* BackgroundApps.BackgroundAppService;
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
@@ -411,6 +419,7 @@ const makeWsRpcLayer = (
       );
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
+      const githubOAuth = yield* GitHubOAuth.GitHubOAuth;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
@@ -445,7 +454,9 @@ const makeWsRpcLayer = (
       ) =>
         instrumentRpcEffect(
           method,
-          authorizeEffect(requiredScopeForRpcMethod(method), effect),
+          authorizeEffect(requiredScopeForRpcMethod(method), effect).pipe(
+            Effect.provideService(GitHubTenant, { sessionId: currentSessionId }),
+          ),
           traceAttributes,
         );
       const observeRpcStream = <A, E, R>(
@@ -455,7 +466,9 @@ const makeWsRpcLayer = (
       ) =>
         instrumentRpcStream(
           method,
-          authorizeStream(requiredScopeForRpcMethod(method), stream),
+          authorizeStream(requiredScopeForRpcMethod(method), stream).pipe(
+            Stream.provideService(GitHubTenant, { sessionId: currentSessionId }),
+          ),
           traceAttributes,
         );
       const observeRpcStreamEffect = <A, StreamError, StreamContext, EffectError, EffectContext>(
@@ -469,7 +482,12 @@ const makeWsRpcLayer = (
       ) =>
         instrumentRpcStreamEffect(
           method,
-          authorizeEffect(requiredScopeForRpcMethod(method), effect),
+          authorizeEffect(requiredScopeForRpcMethod(method), effect).pipe(
+            Effect.provideService(GitHubTenant, { sessionId: currentSessionId }),
+            Effect.map((stream) =>
+              stream.pipe(Stream.provideService(GitHubTenant, { sessionId: currentSessionId })),
+            ),
+          ),
           traceAttributes,
         );
       const toDispatchCommandError = (cause: unknown, fallbackMessage: string) =>
@@ -1747,6 +1765,14 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "source-control",
             },
           ),
+        [WS_METHODS.sourceControlStartGitHubOAuth]: (_input) =>
+          observeRpcEffect(WS_METHODS.sourceControlStartGitHubOAuth, githubOAuth.start, {
+            "rpc.aggregate": "source-control",
+          }),
+        [WS_METHODS.sourceControlDisconnectGitHub]: (_input) =>
+          observeRpcEffect(WS_METHODS.sourceControlDisconnectGitHub, githubOAuth.disconnect, {
+            "rpc.aggregate": "source-control",
+          }),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchEntries,
@@ -2088,6 +2114,44 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "terminal" },
           ),
+        [WS_METHODS.backgroundAppsList]: (input) =>
+          observeRpcEffect(WS_METHODS.backgroundAppsList, backgroundApps.list(input), {
+            "rpc.aggregate": "background-app",
+          }),
+        [WS_METHODS.backgroundAppsStart]: (input) =>
+          observeRpcEffect(WS_METHODS.backgroundAppsStart, backgroundApps.start(input), {
+            "rpc.aggregate": "background-app",
+          }),
+        [WS_METHODS.backgroundAppsStop]: (input) =>
+          observeRpcEffect(WS_METHODS.backgroundAppsStop, backgroundApps.stop(input), {
+            "rpc.aggregate": "background-app",
+          }),
+        [WS_METHODS.backgroundAppsRestart]: (input) =>
+          observeRpcEffect(WS_METHODS.backgroundAppsRestart, backgroundApps.restart(input), {
+            "rpc.aggregate": "background-app",
+          }),
+        [WS_METHODS.backgroundAppsLogs]: (input) =>
+          observeRpcStream(
+            WS_METHODS.backgroundAppsLogs,
+            Stream.callback<BackgroundAppLogEvent, BackgroundAppError>((queue) =>
+              Effect.acquireRelease(
+                backgroundApps.attachLogs(input, (event) => Queue.offer(queue, event)),
+                (unsubscribe) => Effect.sync(unsubscribe),
+              ),
+            ),
+            { "rpc.aggregate": "background-app" },
+          ),
+        [WS_METHODS.subscribeBackgroundApps]: (input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeBackgroundApps,
+            Stream.callback<BackgroundAppEvent>((queue) =>
+              Effect.acquireRelease(
+                backgroundApps.subscribe(input, (event) => Queue.offer(queue, event)),
+                (unsubscribe) => Effect.sync(unsubscribe),
+              ),
+            ),
+            { "rpc.aggregate": "background-app" },
+          ),
         [WS_METHODS.previewOpen]: (input) =>
           observeRpcEffect(WS_METHODS.previewOpen, previewManager.open(input), {
             "rpc.aggregate": "preview",
@@ -2331,7 +2395,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
                           BitbucketApi.layer,
                           GitHubCli.layer,
                           GitLabCli.layer,
-                        ),
+                        ).pipe(Layer.provideMerge(GitHubCredentialStore.layer)),
                       ),
                       Layer.provideMerge(GitVcsDriver.layer),
                       Layer.provide(
@@ -2342,6 +2406,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
                   Layer.provide(VcsProcess.layer),
                 ),
               ),
+              Layer.provide(GitHubOAuth.layer.pipe(Layer.provide(GitHubCredentialStore.layer))),
             ),
           ),
         );

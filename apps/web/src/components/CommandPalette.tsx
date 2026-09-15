@@ -43,6 +43,7 @@ import {
   SquarePenIcon,
   TextSearchIcon,
   Unplug,
+  Boxes,
 } from "lucide-react";
 import {
   useCallback,
@@ -1543,6 +1544,20 @@ function OpenCommandPaletteDialog(props: {
         themeHalves,
         initialAppearance: resolvedTheme,
       });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:apps",
+    searchTerms: ["apps", "background", "dev server", "process", "logs", "restart"],
+    title: "Toggle Apps",
+    disabled: !activeThread,
+    icon: <Boxes className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "apps.toggle",
+    run: async () => {
+      if (!activeThread) return;
+      useRightPanelStore.getState().toggle(scopeThreadRef(activeThread.environmentId, activeThread.id), "apps");
     },
   });
 

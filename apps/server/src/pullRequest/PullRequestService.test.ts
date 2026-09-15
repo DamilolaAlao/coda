@@ -1,16 +1,18 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type {
-  OrchestrationProjectShell,
-  ProjectId,
-  PullRequestReviewCapabilities,
-  PullRequestReviewerCapabilities,
-  SourceControlProviderKind,
+import {
+  AuthSessionId,
+  type OrchestrationProjectShell,
+  type ProjectId,
+  type PullRequestReviewCapabilities,
+  type PullRequestReviewerCapabilities,
+  type SourceControlProviderKind,
 } from "@t3tools/contracts";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import { GitHubTenant } from "../sourceControl/GitHubTenant.ts";
 import {
   PullRequestProviderError,
   type ProviderChangeRequest,
@@ -1296,6 +1298,42 @@ it.effect("keeps two hosts of one provider kind as two accounts", () =>
       "github.acme.dev",
       "github.com",
     ]);
+  }),
+);
+
+it.effect("does not reuse a GitHub viewer cache across tenants", () =>
+  Effect.gen(function* () {
+    let viewerCalls = 0;
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "cloud", workspaceRoot: "/cloud", repository: "acme/web" }),
+      ],
+      providers: [
+        fakeProvider("github", {
+          getViewer: () => {
+            viewerCalls += 1;
+            return Effect.succeed(`viewer-${viewerCalls}`);
+          },
+        }),
+      ],
+    });
+    const tenantA = { sessionId: AuthSessionId.make("pr-tenant-a") };
+    const tenantB = { sessionId: AuthSessionId.make("pr-tenant-b") };
+
+    const first = yield* service.list({ state: "open" }).pipe(
+      Effect.provideService(GitHubTenant, tenantA),
+    );
+    const second = yield* service.list({ state: "open" }).pipe(
+      Effect.provideService(GitHubTenant, tenantB),
+    );
+    const third = yield* service.list({ state: "open" }).pipe(
+      Effect.provideService(GitHubTenant, tenantA),
+    );
+
+    assert.strictEqual(first.viewers["github.com"], "viewer-1");
+    assert.strictEqual(second.viewers["github.com"], "viewer-2");
+    assert.strictEqual(third.viewers["github.com"], "viewer-1");
+    assert.strictEqual(viewerCalls, 2);
   }),
 );
 

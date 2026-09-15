@@ -1,6 +1,6 @@
 import { canCreateProjectInEnvironment } from "@t3tools/client-runtime/operations/projects";
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, SourceControlProviderDiscoveryItem } from "@t3tools/contracts";
 
 export function resolveAddProjectEnvironment<
   T extends {
@@ -23,4 +23,10 @@ export function resolveAddProjectEnvironment<
       canCreateProjectInEnvironment(environment.connectionState),
     ) ?? null
   );
+}
+
+export function canConnectGitHubProvider(
+  provider: SourceControlProviderDiscoveryItem | undefined,
+): boolean {
+  return provider?.status === "available" && provider.auth.status !== "authenticated";
 }

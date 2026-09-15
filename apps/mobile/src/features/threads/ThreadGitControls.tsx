@@ -103,6 +103,7 @@ type ThreadGitControlsProps = ThreadGitMenuProps & {
   readonly showDirectFileControl?: boolean;
   readonly onOpenTerminal: (terminalId?: string | null) => void;
   readonly onOpenNewTerminal: () => void;
+  readonly onOpenBackgroundApps: () => void;
   readonly onRunProjectScript: (script: ProjectScript) => Promise<void>;
 };
 
@@ -259,6 +260,13 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
         label: "Terminal",
         menu: {
           items: [
+            {
+              description: "View logs, ports, and lifecycle controls",
+              icon: { name: "server.rack", type: "sfSymbol" as const },
+              label: "Background Apps",
+              onPress: props.onOpenBackgroundApps,
+              type: "action" as const,
+            },
             ...props.projectScripts.map((script) => ({
               description: script.command,
               icon: { name: projectScriptMenuIcon(script.icon), type: "sfSymbol" as const },
@@ -381,6 +389,7 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
       props.canOpenFiles,
       props.canOpenTerminal,
       props.gitStatus,
+      props.onOpenBackgroundApps,
       props.onOpenNewTerminal,
       props.onOpenTerminal,
       props.onRunProjectScript,

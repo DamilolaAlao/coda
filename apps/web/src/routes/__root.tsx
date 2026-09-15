@@ -45,6 +45,7 @@ import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
 import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { shellEnvironment } from "../state/shell";
+import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomValue } from "@effect/atom-react";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
@@ -217,6 +218,9 @@ function HostedAccessControllers() {
   const { environments } = useEnvironments();
   const alreadyPaired = environments.length > 0;
   const connectPairingEnvironment = useAtomCommand(connectPairing, { reportFailure: false });
+  const startGitHubOAuth = useAtomCommand(sourceControlEnvironment.startGitHubOAuth, {
+    reportFailure: false,
+  });
 
   return (
     <>
@@ -232,7 +236,13 @@ function HostedAccessControllers() {
           }
           writePasscodeUnlocked(true);
           setUnlocked(true);
-          window.location.assign("/api/auth/github");
+          const oauth = await startGitHubOAuth({
+            environmentId: result.value,
+            input: {},
+          });
+          if (oauth._tag === "Success") {
+            window.location.assign(oauth.value.authorizeUrl);
+          }
         }}
       />
       <HostedStaticEnvironmentBootstrap />

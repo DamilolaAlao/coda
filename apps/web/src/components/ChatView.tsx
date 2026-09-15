@@ -131,6 +131,7 @@ import {
   updatePullRequestTabStatus,
   useRightPanelStore,
 } from "../rightPanelStore";
+import { resolveDiscoveredServerUrl } from "~/browser/browserTargetResolver";
 import {
   isPreviewSupportedInRuntime,
   setActivePreviewTab,
@@ -138,6 +139,7 @@ import {
 } from "../previewStateStore";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { closePreviewSession } from "./preview/closePreviewSession";
+import { openPreviewSession } from "./preview/openPreviewSession";
 import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
 import { subscribePreviewAction } from "./preview/previewActionBus";
 import { getConfiguredPreviewUrls } from "./preview/previewEmptyStateLogic";
@@ -151,6 +153,7 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs, type PullRequestTabStatus } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
+import { BackgroundAppsPanel } from "./BackgroundAppsPanel";
 import { RestClientPanel } from "./RestClientPanel";
 import {
   deriveAgentPanelModel,
@@ -232,6 +235,7 @@ import {
   serverEnvironment,
 } from "../state/server";
 import { terminalEnvironment } from "../state/terminal";
+import { backgroundAppEnvironment } from "../state/backgroundApps";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import {
   requestOlderThreadTurns,
@@ -1240,6 +1244,9 @@ function ChatViewContent(props: ChatViewProps) {
   });
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
+  const startBackgroundApp = useAtomCommand(backgroundAppEnvironment.start, {
+    reportFailure: false,
+  });
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
@@ -1583,6 +1590,19 @@ function ChatViewContent(props: ChatViewProps) {
     [activeThreadEnvironmentId, activeThreadId],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  const backgroundAppsList = useEnvironmentQuery(
+    activeThreadRef
+      ? backgroundAppEnvironment.list({
+          environmentId: activeThreadRef.environmentId,
+          input: { threadId: activeThreadRef.threadId },
+        })
+      : null,
+  );
+  const runningAppCount =
+    backgroundAppsList.data?.apps.filter(
+      (app) => app.status === "running" || app.status === "starting",
+    ).length ?? 0;
+  const refreshBackgroundApps = backgroundAppsList.refresh;
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
     readonly messageId: MessageId | null;
@@ -2989,6 +3009,44 @@ function ChatViewContent(props: ChatViewProps) {
       const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
       const shouldCreateNewTerminal = wantsNewTerminal;
       const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
+      const runtimeEnv = projectScriptRuntimeEnv({
+        project: {
+          cwd: activeProject.workspaceRoot,
+        },
+        worktreePath: targetWorktreePath,
+        ...(options?.env ? { extraEnv: options.env } : {}),
+      });
+
+      if (script.runInBackground) {
+        const result = await startBackgroundApp({
+          environmentId,
+          input: {
+            id: `script:${activeThreadId}:${script.id}`,
+            threadId: activeThreadId,
+            projectId: activeProject.id,
+            scriptId: script.id,
+            label: script.name,
+            command: script.command,
+            cwd: targetCwd,
+            worktreePath: targetWorktreePath,
+            env: runtimeEnv,
+            ...(script.previewUrl ? { previewUrl: script.previewUrl } : {}),
+          },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          setThreadError(
+            activeThreadId,
+            error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
+          );
+        } else {
+          refreshBackgroundApps();
+          if (activeThreadRef) {
+            useRightPanelStore.getState().open(activeThreadRef, "apps");
+          }
+        }
+        return;
+      }
 
       setTerminalUiLaunchContext({
         threadId: activeThreadId,
@@ -3001,13 +3059,6 @@ function ChatViewContent(props: ChatViewProps) {
       }
       setTerminalFocusRequestId((value) => value + 1);
 
-      const runtimeEnv = projectScriptRuntimeEnv({
-        project: {
-          cwd: activeProject.workspaceRoot,
-        },
-        worktreePath: targetWorktreePath,
-        ...(options?.env ? { extraEnv: options.env } : {}),
-      });
       const targetTerminalId = shouldCreateNewTerminal
         ? nextTerminalId(allocatableActiveTerminalIds)
         : baseTerminalId;
@@ -3079,6 +3130,8 @@ function ChatViewContent(props: ChatViewProps) {
       activeKnownTerminalIds,
       allocatableActiveTerminalIds,
       runningTerminalIds,
+      startBackgroundApp,
+      refreshBackgroundApps,
       terminalUiState.activeTerminalId,
       writeTerminal,
     ],
@@ -3282,6 +3335,24 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "agents");
   }, [activeThreadRef]);
+  const addAppsSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "apps");
+  }, [activeThreadRef]);
+  const openAppPreview = useCallback(
+    async (url: string) => {
+      if (!activeThreadRef) return;
+      const resolvedUrl = resolveDiscoveredServerUrl(activeThreadRef.environmentId, url);
+      const result = await openPreviewSession({
+        openPreview,
+        threadRef: activeThreadRef,
+        url: resolvedUrl,
+      });
+      if (result._tag === "Failure") return;
+      useRightPanelStore.getState().openBrowser(activeThreadRef, result.value.tabId);
+    },
+    [activeThreadRef, openPreview],
+  );
   const addHttpSurface = useCallback(() => {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "http");
@@ -4791,6 +4862,15 @@ function ChatViewContent(props: ChatViewProps) {
         return;
       }
 
+      if (command === "apps.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (activeThreadRef) {
+          useRightPanelStore.getState().toggle(activeThreadRef, "apps");
+        }
+        return;
+      }
+
       if (command === "modelPicker.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -4825,6 +4905,7 @@ function ChatViewContent(props: ChatViewProps) {
     keybindings,
     onToggleDiff,
     addHttpSurface,
+    activeThreadRef,
     toggleRightPanel,
     toggleTerminalVisibility,
     composerRef,
@@ -6139,6 +6220,13 @@ function ChatViewContent(props: ChatViewProps) {
       />
     ) : activeRightPanelSurface?.kind === "http" ? (
       <RestClientPanel environmentId={activeThreadRef?.environmentId ?? null} />
+    ) : activeRightPanelSurface?.kind === "apps" && activeThreadRef ? (
+      <BackgroundAppsPanel
+        threadRef={activeThreadRef}
+        onOpenPreview={(url) => {
+          void openAppPreview(url);
+        }}
+      />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (
@@ -6218,6 +6306,9 @@ function ChatViewContent(props: ChatViewProps) {
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
+            runningAppCount={runningAppCount}
+            onOpenApps={addAppsSurface}
+            appsShortcutLabel={shortcutLabelForCommand(keybindings, "apps.toggle")}
           />
         </header>
 
@@ -6584,17 +6675,20 @@ function ChatViewContent(props: ChatViewProps) {
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
           onAddPullRequest={addPullRequestSurface}
-          onAddAgents={addAgentsSurface}
-          onAddHttp={addHttpSurface}
-          browserAvailable={isPreviewSupportedInRuntime()}
-          terminalAvailable={activeProject !== null}
-          diffAvailable={isServerThread && isGitRepo}
-          filesAvailable={activeProject !== null}
-          pullRequestAvailable={pullRequestSurfaceAvailable}
-          agentsAvailable
-          httpAvailable
-          pullRequestStatuses={pullRequestTabStatuses}
-          liveAgentCount={agentPanelModel.liveCount}
+            onAddAgents={addAgentsSurface}
+            onAddApps={addAppsSurface}
+            onAddHttp={addHttpSurface}
+            browserAvailable={isPreviewSupportedInRuntime()}
+            terminalAvailable={activeProject !== null}
+            diffAvailable={isServerThread && isGitRepo}
+            filesAvailable={activeProject !== null}
+            pullRequestAvailable={pullRequestSurfaceAvailable}
+            agentsAvailable
+            appsAvailable
+            httpAvailable
+            pullRequestStatuses={pullRequestTabStatuses}
+            liveAgentCount={agentPanelModel.liveCount}
+            runningAppCount={runningAppCount}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -6626,6 +6720,7 @@ function ChatViewContent(props: ChatViewProps) {
             onAddFiles={addFilesSurface}
             onAddPullRequest={addPullRequestSurface}
             onAddAgents={addAgentsSurface}
+            onAddApps={addAppsSurface}
             onAddHttp={addHttpSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
@@ -6633,9 +6728,11 @@ function ChatViewContent(props: ChatViewProps) {
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             agentsAvailable
+            appsAvailable
             httpAvailable
             pullRequestStatuses={pullRequestTabStatuses}
             liveAgentCount={agentPanelModel.liveCount}
+            runningAppCount={runningAppCount}
           >
             {rightPanelContent}
           </RightPanelTabs>

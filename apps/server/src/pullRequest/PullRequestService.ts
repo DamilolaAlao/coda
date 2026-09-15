@@ -48,6 +48,7 @@ import { detectSourceControlProviderFromRemoteUrl } from "@t3tools/shared/source
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import { GitHubTenant } from "../sourceControl/GitHubTenant.ts";
 import {
   type ProviderChangeRequest,
   type ProviderListCursor,
@@ -599,6 +600,7 @@ export const make = Effect.gen(function* () {
   // "is this host set up" answer the provider switcher shows, and holding it would keep saying
   // signed-out after the reader has signed in.
   const viewersByHost = new Map<string, { readonly at: number; readonly result: ResolvedViewer }>();
+  const tenantCacheKey = Effect.map(GitHubTenant, (tenant) => tenant?.sessionId ?? "none");
 
   const resolveViewers = (
     projects: ReadonlyArray<SupportedProject>,
@@ -607,10 +609,12 @@ export const make = Effect.gen(function* () {
     Effect.forEach(
       [...new Set(projects.map(({ host }) => host))],
       (host) =>
-        Effect.flatMap(Clock.currentTimeMillis, (now): Effect.Effect<ResolvedViewer> => {
-          const held = viewersByHost.get(host);
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          const cacheKey = `${yield* tenantCacheKey}:${host}`;
+          const held = viewersByHost.get(cacheKey);
           if (held !== undefined && now - held.at <= Duration.toMillis(VIEWER_CACHE_TTL)) {
-            return Effect.succeed(held.result);
+            return held.result;
           }
           const forHost = projects.filter((project) => project.host === host);
           const api = forHost[0]!.api;
@@ -618,7 +622,7 @@ export const make = Effect.gen(function* () {
           // unreadable worktree would otherwise report the whole host as signed out.
           const roots =
             viewerRoots.get(host) ?? forHost.map(({ project }) => project.workspaceRoot);
-          return Effect.firstSuccessOf(roots.map((cwd) => api.getViewer({ cwd }))).pipe(
+          return yield* Effect.firstSuccessOf(roots.map((cwd) => api.getViewer({ cwd }))).pipe(
             Effect.map((viewer) => ({
               host,
               kind: api.kind,
@@ -626,7 +630,9 @@ export const make = Effect.gen(function* () {
               error: null as PullRequestProviderError | null,
             })),
             Effect.tap((result) =>
-              Effect.map(Clock.currentTimeMillis, (at) => viewersByHost.set(host, { at, result })),
+              Effect.map(Clock.currentTimeMillis, (at) =>
+                viewersByHost.set(cacheKey, { at, result }),
+              ),
             ),
             Effect.catch((error) => Effect.succeed({ host, kind: api.kind, viewer: null, error })),
           );
@@ -1774,6 +1780,7 @@ export const make = Effect.gen(function* () {
       // the cast restores the branded field types JSON cannot carry.
       const [
         ,
+        ,
         state,
         involvement,
         filters,
@@ -1784,6 +1791,7 @@ export const make = Effect.gen(function* () {
         query,
         cursorEntries,
       ] = JSON.parse(key) as [
+        string,
         number,
         string,
         string | null,
@@ -1816,38 +1824,50 @@ export const make = Effect.gen(function* () {
     LIST_STALE_WINDOW,
     LIST_CACHE_CAPACITY,
   );
-  const list: PullRequestService["Service"]["list"] = (input) => {
-    const key = JSON.stringify([
-      listingsEpoch,
-      input.state,
-      input.involvement ?? null,
-      // Positional so two identical filter sets key alike however their record was assembled.
-      input.filters === undefined
-        ? null
-        : [
-            input.filters.draft ?? null,
-            input.filters.review ?? null,
-            input.filters.checks ?? null,
-            input.filters.author ?? null,
-            input.filters.labels ?? null,
-            input.filters.excludedLabels ?? null,
-          ],
-      input.projectId ?? null,
-      // Sorted so the same narrowing keys alike however the caller ordered it.
-      input.projectIds === undefined ? null : [...input.projectIds].sort(),
-      input.host ?? null,
-      input.limit ?? null,
-      input.query ?? null,
-      input.cursors === undefined
-        ? null
-        : Object.entries(input.cursors).toSorted(([left], [right]) => left.localeCompare(right)),
-    ]);
-    return staleList(key, Cache.get(listCache, key));
-  };
+  const list: PullRequestService["Service"]["list"] = (input) =>
+    tenantCacheKey.pipe(
+      Effect.flatMap((tenant) => {
+        const key = JSON.stringify([
+          tenant,
+          listingsEpoch,
+          input.state,
+          input.involvement ?? null,
+          // Positional so two identical filter sets key alike however their record was assembled.
+          input.filters === undefined
+            ? null
+            : [
+                input.filters.draft ?? null,
+                input.filters.review ?? null,
+                input.filters.checks ?? null,
+                input.filters.author ?? null,
+                input.filters.labels ?? null,
+                input.filters.excludedLabels ?? null,
+              ],
+          input.projectId ?? null,
+          // Sorted so the same narrowing keys alike however the caller ordered it.
+          input.projectIds === undefined ? null : [...input.projectIds].sort(),
+          input.host ?? null,
+          input.limit ?? null,
+          input.query ?? null,
+          input.cursors === undefined
+            ? null
+            : Object.entries(input.cursors).toSorted(([left], [right]) =>
+                left.localeCompare(right),
+              ),
+        ]);
+        return staleList(key, Cache.get(listCache, key));
+      }),
+    );
 
   const detailCache = yield* Cache.makeWith(
     (key: string) => {
-      const [, projectId, repository, number] = JSON.parse(key) as [number, string, string, number];
+      const [, , projectId, repository, number] = JSON.parse(key) as [
+        string,
+        number,
+        string,
+        string,
+        number,
+      ];
       return detailUncached({ projectId, repository, number } as PullRequestRef);
     },
     {
@@ -1859,14 +1879,29 @@ export const make = Effect.gen(function* () {
     DETAIL_STALE_WINDOW,
     DETAIL_CACHE_CAPACITY,
   );
-  const detail: PullRequestService["Service"]["detail"] = (input) => {
-    const key = JSON.stringify([refEpoch(input), input.projectId, input.repository, input.number]);
-    return staleDetail(key, Cache.get(detailCache, key));
-  };
+  const detail: PullRequestService["Service"]["detail"] = (input) =>
+    tenantCacheKey.pipe(
+      Effect.flatMap((tenant) => {
+        const key = JSON.stringify([
+          tenant,
+          refEpoch(input),
+          input.projectId,
+          input.repository,
+          input.number,
+        ]);
+        return staleDetail(key, Cache.get(detailCache, key));
+      }),
+    );
 
   const activityCache = yield* Cache.makeWith(
     (key: string) => {
-      const [, projectId, repository, number] = JSON.parse(key) as [number, string, string, number];
+      const [, , projectId, repository, number] = JSON.parse(key) as [
+        string,
+        number,
+        string,
+        string,
+        number,
+      ];
       return activityUncached({ projectId, repository, number } as PullRequestRef);
     },
     {
@@ -1878,14 +1913,24 @@ export const make = Effect.gen(function* () {
     DETAIL_STALE_WINDOW,
     DETAIL_CACHE_CAPACITY,
   );
-  const activity: PullRequestService["Service"]["activity"] = (input) => {
-    const key = JSON.stringify([refEpoch(input), input.projectId, input.repository, input.number]);
-    return staleActivity(key, Cache.get(activityCache, key));
-  };
+  const activity: PullRequestService["Service"]["activity"] = (input) =>
+    tenantCacheKey.pipe(
+      Effect.flatMap((tenant) => {
+        const key = JSON.stringify([
+          tenant,
+          refEpoch(input),
+          input.projectId,
+          input.repository,
+          input.number,
+        ]);
+        return staleActivity(key, Cache.get(activityCache, key));
+      }),
+    );
 
   const diffCache = yield* Cache.makeWith(
     (key: string) => {
-      const [, projectId, repository, number, cursor, commit] = JSON.parse(key) as [
+      const [, , projectId, repository, number, cursor, commit] = JSON.parse(key) as [
+        string,
         number,
         string,
         string,
@@ -1905,7 +1950,7 @@ export const make = Effect.gen(function* () {
       capacity: DIFF_CACHE_CAPACITY,
       timeToLive: (exit, key) => {
         if (!Exit.isSuccess(exit)) return Duration.zero;
-        const commit = (JSON.parse(key) as ReadonlyArray<unknown>)[5];
+        const commit = (JSON.parse(key) as ReadonlyArray<unknown>)[6];
         return commit === null ? DIFF_CACHE_TTL : COMMIT_DIFF_CACHE_TTL;
       },
     },
@@ -1914,21 +1959,29 @@ export const make = Effect.gen(function* () {
     DIFF_STALE_WINDOW,
     DIFF_CACHE_CAPACITY,
   );
-  const diff: PullRequestService["Service"]["diff"] = (input) => {
-    const key = JSON.stringify([
-      refEpoch(input),
-      input.projectId,
-      input.repository,
-      input.number,
-      input.cursor ?? null,
-      input.commit ?? null,
-    ]);
-    return staleDiff(key, Cache.get(diffCache, key));
-  };
+  const diff: PullRequestService["Service"]["diff"] = (input) =>
+    tenantCacheKey.pipe(
+      Effect.flatMap((tenant) => {
+        const key = JSON.stringify([
+          tenant,
+          refEpoch(input),
+          input.projectId,
+          input.repository,
+          input.number,
+          input.cursor ?? null,
+          input.commit ?? null,
+        ]);
+        return staleDiff(key, Cache.get(diffCache, key));
+      }),
+    );
 
   const listStatsCache = yield* Cache.makeWith(
     (key: string) => {
-      const [, refs] = JSON.parse(key) as [number, ReadonlyArray<[string, string, number]>];
+      const [, , refs] = JSON.parse(key) as [
+        string,
+        number,
+        ReadonlyArray<[string, string, number]>,
+      ];
       return listStatsUncached({
         refs: refs.map(([projectId, repository, number]) => ({ projectId, repository, number })),
       } as unknown as PullRequestListStatsInput);
@@ -1948,15 +2001,22 @@ export const make = Effect.gen(function* () {
   );
   const listStats: PullRequestService["Service"]["listStats"] = (input) => {
     if (input.refs.length === 0) return Effect.succeed({ stats: [] });
-    const key = JSON.stringify([
-      listingsEpoch,
-      input.refs
-        .map((ref) => [ref.projectId, ref.repository, ref.number] as const)
-        .toSorted((left, right) =>
-          `${left[0]} ${left[1]} ${left[2]}`.localeCompare(`${right[0]} ${right[1]} ${right[2]}`),
-        ),
-    ]);
-    return staleListStats(key, Cache.get(listStatsCache, key));
+    return tenantCacheKey.pipe(
+      Effect.flatMap((tenant) => {
+        const key = JSON.stringify([
+          tenant,
+          listingsEpoch,
+          input.refs
+            .map((ref) => [ref.projectId, ref.repository, ref.number] as const)
+            .toSorted((left, right) =>
+              `${left[0]} ${left[1]} ${left[2]}`.localeCompare(
+                `${right[0]} ${right[1]} ${right[2]}`,
+              ),
+            ),
+        ]);
+        return staleListStats(key, Cache.get(listStatsCache, key));
+      }),
+    );
   };
 
   const invalidate: PullRequestService["Service"]["invalidate"] = (input) =>

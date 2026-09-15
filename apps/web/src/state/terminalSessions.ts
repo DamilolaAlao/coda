@@ -6,7 +6,12 @@ import {
   type KnownTerminalSession,
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
-import { ThreadId, type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
+import {
+  isBackgroundAppTerminalId,
+  ThreadId,
+  type EnvironmentId,
+  type TerminalAttachInput,
+} from "@t3tools/contracts";
 import { useMemo } from "react";
 
 import { useEnvironmentQuery } from "./query";
@@ -66,6 +71,7 @@ export function useKnownTerminalSessions(input: {
     }
     return (metadata.data ?? [])
       .filter((summary) => input.threadId === null || summary.threadId === input.threadId)
+      .filter((summary) => !isBackgroundAppTerminalId(summary.terminalId))
       .map((summary) => ({
         target: {
           environmentId: input.environmentId!,

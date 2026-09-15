@@ -120,6 +120,7 @@ import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as BackgroundAppService from "./backgroundApps/BackgroundAppService.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as BrowserTraceCollector from "./observability/BrowserTraceCollector.ts";
@@ -135,6 +136,7 @@ import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as VcsDriver from "./vcs/VcsDriver.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
+import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -767,8 +769,17 @@ const buildAppUnderTest = (options?: {
             registerTerminalProcesses: () => Effect.void,
             unregisterTerminal: () => Effect.void,
           }),
+          Layer.mock(BackgroundAppService.BackgroundAppService)({
+            list: () => Effect.succeed({ apps: [], serverEpoch: "test-server", revision: 0 }),
+            start: () => Effect.die("BackgroundAppService not stubbed in this test"),
+            stop: () => Effect.die("BackgroundAppService not stubbed in this test"),
+            restart: () => Effect.die("BackgroundAppService not stubbed in this test"),
+            subscribe: () => Effect.succeed(() => undefined),
+            attachLogs: () => Effect.die("BackgroundAppService not stubbed in this test"),
+          }),
         ),
       ),
+      Layer.provide(VcsProcess.layer),
       Layer.provide(
         Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
           readEvents: () => Stream.empty,

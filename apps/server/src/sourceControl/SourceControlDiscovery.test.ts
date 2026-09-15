@@ -1,10 +1,10 @@
-import { assert, it } from "@effect/vitest";
+import { AuthSessionId, VcsProcessSpawnError } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { VcsProcessSpawnError } from "@t3tools/contracts";
+import { assert, it } from "@effect/vitest";
 
 import * as ServerConfig from "../config.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -12,6 +12,8 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as AzureDevOpsCli from "./AzureDevOpsCli.ts";
 import * as BitbucketApi from "./BitbucketApi.ts";
 import * as GitHubCli from "./GitHubCli.ts";
+import * as GitHubCredentialStore from "./GitHubCredentialStore.ts";
+import { GitHubTenant } from "./GitHubTenant.ts";
 import * as GitLabCli from "./GitLabCli.ts";
 import * as SourceControlDiscovery from "./SourceControlDiscovery.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
@@ -280,4 +282,98 @@ Logged in to gitlab.com as gitlab-user
       ],
     );
   }).pipe(Effect.provide(testLayer));
+});
+
+it.effect("prefers the managed tenant GitHub account over host gh auth", () => {
+  const processMock = {
+    run: (input: VcsProcess.VcsProcessInput) => {
+      if (input.args[0] === "--version") {
+        return Effect.succeed(processOutput(`${input.command} version test\n`));
+      }
+      if (input.command === "gh" && input.args.join(" ") === "auth status --json hosts") {
+        return Effect.succeed(
+          processOutput(
+            JSON.stringify({
+              hosts: {
+                "github.com": [
+                  {
+                    state: "success",
+                    active: true,
+                    host: "github.com",
+                    login: "host-user",
+                    tokenSource: "keyring",
+                    gitProtocol: "ssh",
+                  },
+                ],
+              },
+            }),
+          ),
+        );
+      }
+      return Effect.fail(
+        new VcsProcessSpawnError({
+          operation: input.operation,
+          command: input.command,
+          cwd: input.cwd,
+          cause: new Error(`${input.command} not found`),
+        }),
+      );
+    },
+  } satisfies Partial<VcsProcess.VcsProcess["Service"]>;
+  const sessionId = AuthSessionId.make("managed-tenant");
+  const credentialStore = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+    get: () =>
+      Effect.succeed(
+        Option.some({
+          version: 1 as const,
+          sessionId,
+          token: "gho_managed",
+          tokenType: "bearer",
+          scope: "repo",
+          account: "managed-user",
+          host: "github.com",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      ),
+    set: () => Effect.void,
+    remove: () => Effect.void,
+    createOAuthState: () => Effect.succeed({ state: "unused" }),
+    consumeOAuthState: () => Effect.succeed(Option.none()),
+  });
+  const testLayer = Layer.mergeAll(
+    SourceControlDiscovery.layer.pipe(
+      Layer.provide(
+        ServerConfig.layerTest(process.cwd(), {
+          prefix: "t3-source-control-managed-auth-",
+        }),
+      ),
+      Layer.provide(Layer.mock(VcsProcess.VcsProcess)(processMock)),
+      Layer.provide(
+        sourceControlProviderRegistryTestLayer({
+          process: processMock,
+          bitbucket: {
+            probeAuth: Effect.succeed({
+              status: "unauthenticated",
+              account: Option.none(),
+              host: Option.some("bitbucket.org"),
+              detail: Option.none(),
+            }),
+          },
+        }),
+      ),
+      Layer.provideMerge(NodeServices.layer),
+    ),
+    credentialStore,
+  );
+
+  return Effect.gen(function* () {
+    const discovery = yield* SourceControlDiscovery.SourceControlDiscovery;
+    const result = yield* discovery.discover;
+    const github = result.sourceControlProviders.find((item) => item.kind === "github");
+    assert.ok(github);
+    assert.strictEqual(github.auth.status, "authenticated");
+    assert.deepStrictEqual(github.auth.account, Option.some("managed-user"));
+    assert.strictEqual(github.auth.source, "managed");
+  }).pipe(Effect.provideService(GitHubTenant, { sessionId }), Effect.provide(testLayer));
 });

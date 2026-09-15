@@ -21,6 +21,7 @@ describe("projectScripts helpers", () => {
         command: "pnpm dev",
         icon: "debug",
         runOnWorktreeCreate: false,
+        runInBackground: false,
         previewUrl: "http://localhost:5733",
         autoOpenPreview: true,
       }),
@@ -35,6 +36,27 @@ describe("projectScripts helpers", () => {
     });
   });
 
+  it("stores runInBackground when enabled", () => {
+    expect(
+      buildProjectScript("dev", {
+        name: "Dev server",
+        command: "pnpm dev",
+        icon: "debug",
+        runOnWorktreeCreate: false,
+        runInBackground: true,
+        previewUrl: null,
+        autoOpenPreview: false,
+      }),
+    ).toEqual({
+      id: "dev",
+      name: "Dev server",
+      command: "pnpm dev",
+      icon: "debug",
+      runOnWorktreeCreate: false,
+      runInBackground: true,
+    });
+  });
+
   it("omits preview settings when no preview URL is configured", () => {
     expect(
       buildProjectScript("test", {
@@ -42,6 +64,7 @@ describe("projectScripts helpers", () => {
         command: "pnpm test",
         icon: "test",
         runOnWorktreeCreate: false,
+        runInBackground: false,
         previewUrl: null,
         autoOpenPreview: false,
       }),

@@ -30,6 +30,27 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("reads background app status and logs, and requires terminal operate for mutations", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.backgroundAppsList)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.backgroundAppsLogs)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.subscribeBackgroundApps)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.backgroundAppsStart)).toBe(
+      requiredScopeForRpcMethod(WS_METHODS.terminalOpen),
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.backgroundAppsStop)).toBe(
+      requiredScopeForRpcMethod(WS_METHODS.terminalClose),
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.backgroundAppsRestart)).toBe(
+      requiredScopeForRpcMethod(WS_METHODS.terminalRestart),
+    );
+  });
+
   it("allows relay status reads without granting relay installation access", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.cloudGetRelayClientStatus)).toBe(
       AuthRelayReadScope,

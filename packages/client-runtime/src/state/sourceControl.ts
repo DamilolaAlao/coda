@@ -44,5 +44,13 @@ export function createSourceControlEnvironmentAtoms<R, E>(
           cwd: target.input.cwd,
         }),
     }),
+    startGitHubOAuth: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:source-control:start-github-oauth",
+      tag: WS_METHODS.sourceControlStartGitHubOAuth,
+    }),
+    disconnectGitHub: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:source-control:disconnect-github",
+      tag: WS_METHODS.sourceControlDisconnectGitHub,
+    }),
   };
 }

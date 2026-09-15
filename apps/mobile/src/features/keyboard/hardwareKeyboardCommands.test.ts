@@ -8,6 +8,10 @@ describe("parseActiveThreadPath", () => {
       environmentId: "environment-1",
       threadId: "thread-1",
     });
+    expect(parseActiveThreadPath("/threads/environment-1/thread-1/apps")).toEqual({
+      environmentId: "environment-1",
+      threadId: "thread-1",
+    });
   });
 
   it("decodes route components", () => {
