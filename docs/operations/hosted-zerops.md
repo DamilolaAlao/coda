@@ -40,7 +40,7 @@ Hermes auth is still an OpenCode Go API key in T3 Settings (or `OPENCODE_GO_API_
 
 ## Persistence
 
-`T3CODE_HOME` is `/data` inside the container. `run.sh` bind-mounts host `/var/data`
-(not `/var/www/data`) so pairing keys, SQLite, and preview tabs survive Zerops extracts
-into `/var/www`. An existing `/var/www/data` tree is copied once if `/var/data/userdata`
-is missing.
+`T3CODE_HOME` is `/data` inside the app container. `run.sh` mounts a Docker named
+volume (`coda-data`) there so pairing keys, SQLite, and preview tabs survive Zerops
+extracts into `/var/www`. Leftover `/var/www/data` from older bind-mounts is copied
+into the volume once if the volume is empty.
