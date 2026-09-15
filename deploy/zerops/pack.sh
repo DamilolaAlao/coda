@@ -28,16 +28,10 @@ if [ -f "$ROOT/deploy/zerops/.env" ]; then
 fi
 PUBLIC_URL="${T3CODE_PUBLIC_URL:-}"
 PAIRING_CODE="${T3CODE_PAIRING_CODE:-}"
-GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-}"
-GITHUB_CLIENT_SECRET="${GITHUB_CLIENT_SECRET:-}"
-GITHUB_REDIRECT_URI="${GITHUB_REDIRECT_URI:-}"
 sed \
   -e "s|__IMAGE_TAG__|${IMAGE_TAG}|g" \
   -e "s|__T3CODE_PUBLIC_URL__|${PUBLIC_URL}|g" \
   -e "s|__T3CODE_PAIRING_CODE__|${PAIRING_CODE}|g" \
-  -e "s|__GITHUB_CLIENT_ID__|${GITHUB_CLIENT_ID}|g" \
-  -e "s|__GITHUB_CLIENT_SECRET__|${GITHUB_CLIENT_SECRET}|g" \
-  -e "s|__GITHUB_REDIRECT_URI__|${GITHUB_REDIRECT_URI}|g" \
   "$ROOT/deploy/zerops/zerops.yml" > "$OUT/zerops.yml"
 chmod +x "$OUT/install-hermes.sh" "$OUT/hermes-wrapper.sh" "$OUT/start.sh" "$OUT/run.sh"
 

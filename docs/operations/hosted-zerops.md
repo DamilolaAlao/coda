@@ -18,9 +18,9 @@ Never put a live pairing PIN or deploy token in git.
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `T3CODE_PAIRING_CODE`  | Six-digit PIN. Set in `deploy/zerops/.env` (gitignored) for `pack.sh`, or in the Zerops service env UI. If unset or not six digits, passcode pairing is off. |
 | `T3CODE_PUBLIC_URL`    | Public `https://` origin. Used as the pairing JWT audience. Same sources as the PIN.                                                                         |
-| `GITHUB_CLIENT_ID`     | Client ID for the GitHub OAuth app used by Settings → Source Control.                                                                                        |
-| `GITHUB_CLIENT_SECRET` | Client secret for the GitHub OAuth app. Keep it only in the gitignored `.env` or Zerops env.                                                                 |
-| `GITHUB_REDIRECT_URI`  | Exact public callback URL: `https://<stack-host>/api/auth/github/callback`. Register the same URL in the GitHub OAuth app.                                   |
+| `GITHUB_CLIENT_ID`     | Client ID for the GitHub OAuth app used by Settings → Source Control. Set in the Zerops service env UI.                                                      |
+| `GITHUB_CLIENT_SECRET` | Client secret for the GitHub OAuth app. Set in the Zerops service env UI.                                                                                    |
+| `GITHUB_REDIRECT_URI`  | Exact public callback URL: `https://<stack-host>/api/auth/github/callback`. Set in Zerops and register the same URL in the GitHub OAuth app.                 |
 | Zerops token           | `zcli login`, not the repo                                                                                                                                   |
 
 Copy [`deploy/zerops/.env.example`](../../deploy/zerops/.env.example) to
@@ -31,16 +31,16 @@ Copy [`deploy/zerops/.env.example`](../../deploy/zerops/.env.example) to
 [`deploy/zerops/`](../../deploy/zerops/) is the push directory. It is **not** the git monorepo
 root.
 
-| File                    | Role                                                         |
-| ----------------------- | ------------------------------------------------------------ |
-| `package.json`          | Runtime deps (`@ff-labs/fff-node`, `node-pty`)               |
-| `install-hermes.sh`     | Non-interactive Hermes install into the runtime image        |
-| `hermes-wrapper.sh`     | Relocatable `bin/hermes`                                     |
-| `start.sh`              | Runtime start: `node dist/bin.mjs serve`                     |
-| `zerops.yml`            | Native Node 24 + Automatic Scaling; prepare installs Hermes  |
-| `pack.sh`               | Bundles server + web dist into a push directory              |
-| `.env.example`          | Template for pack-time server and GitHub OAuth configuration |
-| `Dockerfile` / `run.sh` | Optional local Docker image; not used on Zerops              |
+| File                    | Role                                                        |
+| ----------------------- | ----------------------------------------------------------- |
+| `package.json`          | Runtime deps (`@ff-labs/fff-node`, `node-pty`)              |
+| `install-hermes.sh`     | Non-interactive Hermes install into the runtime image       |
+| `hermes-wrapper.sh`     | Relocatable `bin/hermes`                                    |
+| `start.sh`              | Runtime start: `node dist/bin.mjs serve`                    |
+| `zerops.yml`            | Native Node 24 + Automatic Scaling; prepare installs Hermes |
+| `pack.sh`               | Bundles server + web dist into a push directory             |
+| `.env.example`          | Template for pack-time public URL and pairing code          |
+| `Dockerfile` / `run.sh` | Optional local Docker image; not used on Zerops             |
 
 ## Push
 
@@ -55,7 +55,8 @@ zcli service push stack -P <project-id> --working-dir /tmp/coda-zerops --no-git
 ```
 
 `pack.sh` stamps `IMAGE_TAG` with the current git short SHA (cache-busting only) and substitutes
-the server and GitHub OAuth values from the environment or `deploy/zerops/.env`.
+the public URL and pairing code from the environment or `deploy/zerops/.env`. GitHub OAuth secrets
+remain service-level Zerops environment variables and are not copied into the push directory.
 
 Do not set a `PATH` env var in `zerops.yml`; Zerops reserves that key.
 
