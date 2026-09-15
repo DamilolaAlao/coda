@@ -89,7 +89,7 @@ export interface PullRequestTabStatus {
 }
 
 const SURFACE_DISABLED_REASONS = {
-  browser: "Browser previews are only available in the Coda desktop app.",
+  browser: "Browser is only available from a thread.",
   terminal: "Terminal surfaces are only available from a project thread.",
   files: "Files are only available when a project is open.",
   diff: "Diff is only available for server threads in Git repositories.",
@@ -112,7 +112,7 @@ const LAUNCHER_SHORTCUT_BLOCKING_LAYERS = [
 
 /** One-line unavailability hints for the empty-state cards. */
 const SURFACE_UNAVAILABLE_HINTS = {
-  browser: "Only available in the desktop app.",
+  browser: "Available from a thread.",
   terminal: "Available when a project is open.",
   files: "Available when a project is open.",
   diff: "Available for Git repositories.",

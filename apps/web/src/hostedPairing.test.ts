@@ -22,7 +22,9 @@ describe("hostedPairing", () => {
     expect(resolvePairingUrl("https://backend.example.com:3773/pair#token=x")).toBe(
       "https://backend.example.com:3773",
     );
-    expect(resolvePairingUrl("app-3069-3773.prg1.zerops.app")).toBe(DEFAULT_PAIRING_URL);
+    expect(resolvePairingUrl("app-3069-3773.prg1.zerops.app")).toBe(
+      "https://app-3069-3773.prg1.zerops.app",
+    );
   });
 
   it("reads hosted pairing host and query token parameters", () => {

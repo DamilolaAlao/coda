@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   deriveAuthClientMetadata,
+  isHttpsHttpRequest,
   isRemoteReachableHost,
   resolveSessionCookieName,
 } from "./utils.ts";
@@ -131,5 +132,14 @@ describe("session cookie isolation", () => {
     expect(isRemoteReachableHost("[::1]")).toBe(false);
     expect(isRemoteReachableHost("0.0.0.0")).toBe(true);
     expect(isRemoteReachableHost("192.168.1.50")).toBe(true);
+  });
+});
+
+describe("isHttpsHttpRequest", () => {
+  it("trusts the first forwarded proto", () => {
+    expect(isHttpsHttpRequest({ headers: { "x-forwarded-proto": "https, http" } })).toBe(true);
+    expect(isHttpsHttpRequest({ headers: { "x-forwarded-proto": "http" } })).toBe(false);
+    expect(isHttpsHttpRequest({ headers: {}, url: "https://stack.example/" })).toBe(true);
+    expect(isHttpsHttpRequest({ headers: {}, url: "/pair" })).toBe(false);
   });
 });

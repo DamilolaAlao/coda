@@ -451,8 +451,7 @@ export function removePreviewThread(ref: ScopedThreadRef): void {
 }
 
 export function isPreviewSupportedInRuntime(): boolean {
-  if (typeof window === "undefined") return false;
-  return Boolean(window.desktopBridge?.preview);
+  return typeof window !== "undefined";
 }
 
 export function resetPreviewStateForTests(): void {

@@ -1,9 +1,10 @@
 /**
- * In-memory PreviewManager implementation.
+ * PreviewManager implementation.
  *
  * Sessions are keyed by `(threadId, tabId)`; a single thread can host
  * multiple tabs (browser-style). `open` always creates a new tab — tab
- * lifecycle is owned by the renderer.
+ * lifecycle is owned by the renderer. Hosted servers persist snapshots to
+ * userdata so tabs survive process restarts.
  *
  * Events are published via Effect's `PubSub`, so subscriber failures are
  * isolated from the publishing call (a closed WS subscriber queue cannot
@@ -39,6 +40,13 @@ import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
+
+import * as ServerConfig from "../config.ts";
+import {
+  compositePreviewSessionKey,
+  loadPersistedPreviewSessions,
+  persistPreviewSessions,
+} from "./persist.ts";
 
 export class PreviewManager extends Context.Service<
   PreviewManager,
@@ -80,7 +88,7 @@ type PreviewEventDraft = PreviewEvent extends infer Event
     : never
   : never;
 
-const compositeKey = (threadId: string, tabId: string): string => `${threadId}\u0000${tabId}`;
+const compositeKey = compositePreviewSessionKey;
 
 const sessionsForThread = (
   state: ManagerState,
@@ -146,9 +154,18 @@ const buildIdleSnapshot = (input: {
   updatedAt: input.updatedAt,
 });
 
-export const make = Effect.gen(function* PreviewManagerMake() {
+const makeManager = (options: {
+  readonly loaded?: ManagerState;
+  readonly persist?: (state: ManagerState) => Effect.Effect<void>;
+}) =>
+  Effect.gen(function* PreviewManagerMake() {
   const serverEpoch = NodeCrypto.randomUUID();
-  const stateRef = yield* SynchronizedRef.make<ManagerState>(initialState);
+  const stateRef = yield* SynchronizedRef.make<ManagerState>(options.loaded ?? initialState);
+
+  const persistState = () =>
+    options.persist
+      ? SynchronizedRef.get(stateRef).pipe(Effect.flatMap(options.persist))
+      : Effect.void;
   // Unbounded PubSub is fine here — events are tiny and we don't want to
   // block publishers if a subscriber is slow. WS clients backpressure on
   // their own queues downstream.
@@ -208,6 +225,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       Effect.flatMap((modify) =>
         modify.kind === "fail" ? Effect.fail(modify.error) : Effect.succeed(modify.result),
       ),
+      Effect.tap(() => persistState()),
     );
   };
 
@@ -245,6 +263,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
           return [snapshot, { sessions, revision }] as const;
         }),
       );
+      yield* persistState();
       return snapshot;
     },
   );
@@ -402,6 +421,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
           [undefined, { sessions, revision }] as const,
         );
       });
+      yield* persistState();
     },
   );
 
@@ -434,4 +454,23 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   });
 }).pipe(Effect.withSpan("PreviewManager.make"));
 
-export const layer = Layer.effect(PreviewManager, make);
+export const make = () => makeManager({});
+
+export const makePersisted = (persistPath: string) =>
+  Effect.gen(function* () {
+    const loaded = yield* loadPersistedPreviewSessions(persistPath);
+    return yield* makeManager({
+      loaded,
+      persist: (state) => persistPreviewSessions({ persistPath, state }),
+    });
+  }).pipe(Effect.withSpan("PreviewManager.makePersisted"));
+
+export const layer = Layer.effect(PreviewManager, make());
+
+export const persistedLayer = Layer.effect(
+  PreviewManager,
+  Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    return yield* makePersisted(config.previewSessionsPath);
+  }),
+);

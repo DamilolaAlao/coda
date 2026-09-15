@@ -50,6 +50,22 @@ export function resolveSessionCookieName(input: {
   return `${SESSION_COOKIE_NAME}_${input.port}_${instanceHash}`;
 }
 
+export function isHttpsHttpRequest(request: {
+  readonly headers: Record<string, string | undefined> | { readonly [header: string]: string | undefined };
+  readonly url?: string;
+}): boolean {
+  const forwarded = request.headers["x-forwarded-proto"];
+  const proto = typeof forwarded === "string" ? forwarded.split(",")[0]?.trim().toLowerCase() : "";
+  if (proto === "https") return true;
+  if (proto === "http") return false;
+  try {
+    const url = request.url ? new URL(request.url, "http://127.0.0.1") : null;
+    return url?.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function isRemoteReachableHost(host: string | undefined): boolean {
   if (host === "0.0.0.0" || host === "::" || host === "[::]") {
     return true;

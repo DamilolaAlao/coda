@@ -1,101 +1,64 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  DEFAULT_HOSTED_PASSCODE,
-  evaluateHostedPasscodeAttempt,
   emptyPasscodeAttemptState,
+  evaluatePasscodeFormat,
+  evaluateHostedPasscodeLockout,
   HOSTED_PASSCODE_LOCKOUT_MS,
   HOSTED_PASSCODE_MAX_ATTEMPTS,
   readPasscodeAttemptState,
   readPasscodeUnlocked,
-  resolveHostedPasscode,
+  recordHostedPasscodeFailure,
   writePasscodeAttemptState,
   writePasscodeUnlocked,
 } from "./passcodeGate";
 
 describe("hosted passcode gate", () => {
-  it("uses a 6-digit env pairing code and falls back to the default", () => {
-    expect(resolveHostedPasscode(undefined)).toBe(DEFAULT_HOSTED_PASSCODE);
-    expect(resolveHostedPasscode("")).toBe(DEFAULT_HOSTED_PASSCODE);
-    expect(resolveHostedPasscode("abc123")).toBe(DEFAULT_HOSTED_PASSCODE);
-    expect(resolveHostedPasscode("123")).toBe(DEFAULT_HOSTED_PASSCODE);
-    expect(resolveHostedPasscode("111222")).toBe("111222");
-    expect(resolveHostedPasscode("  722110  ")).toBe("722110");
+  it("accepts only a 6-digit passcode format", () => {
+    expect(evaluatePasscodeFormat("722110")).toEqual({ ok: true });
+    expect(evaluatePasscodeFormat(" 111222 ")).toEqual({ ok: true });
+    expect(evaluatePasscodeFormat("abc123")).toMatchObject({ ok: false, kind: "invalid_format" });
+    expect(evaluatePasscodeFormat("eyJhbGciOiJIUzI1NiJ9.e30.signature")).toMatchObject({
+      ok: false,
+      kind: "invalid_format",
+    });
   });
 
-  it("accepts the hardcoded 6-digit passcode", () => {
-    expect(
-      evaluateHostedPasscodeAttempt({
-        passcode: DEFAULT_HOSTED_PASSCODE,
-        expected: DEFAULT_HOSTED_PASSCODE,
-        now: 1_000,
-        state: emptyPasscodeAttemptState(),
-      }),
-    ).toEqual({ ok: true });
-  });
-
-  it("rejects JWT-shaped values as the wrong format", () => {
-    expect(
-      evaluateHostedPasscodeAttempt({
-        passcode: "eyJhbGciOiJIUzI1NiJ9.e30.signature",
-        expected: DEFAULT_HOSTED_PASSCODE,
-        now: 1_000,
-        state: emptyPasscodeAttemptState(),
-      }),
-    ).toMatchObject({ ok: false, kind: "invalid_format" });
-  });
-
-  it("counts incorrect 6-digit trials and locks after the limit", () => {
+  it("counts incorrect trials locally and locks after the limit", () => {
     let state = emptyPasscodeAttemptState();
     for (let attempt = 1; attempt < HOSTED_PASSCODE_MAX_ATTEMPTS; attempt += 1) {
-      const result = evaluateHostedPasscodeAttempt({
-        passcode: "000000",
-        expected: DEFAULT_HOSTED_PASSCODE,
-        now: 1_000,
-        state,
-      });
-      expect(result.ok).toBe(false);
-      if (result.ok || result.kind !== "mismatch") {
+      const result = recordHostedPasscodeFailure({ now: 1_000, state });
+      expect(result.kind).toBe("mismatch");
+      if (result.kind !== "mismatch") {
         throw new Error("expected a mismatch");
       }
       expect(result.remainingAttempts).toBe(HOSTED_PASSCODE_MAX_ATTEMPTS - attempt);
       state = result.next;
     }
 
-    const locked = evaluateHostedPasscodeAttempt({
-      passcode: "000000",
-      expected: DEFAULT_HOSTED_PASSCODE,
-      now: 5_000,
-      state,
-    });
+    const locked = recordHostedPasscodeFailure({ now: 5_000, state });
     expect(locked).toMatchObject({
       ok: false,
       kind: "locked",
       remainingMs: HOSTED_PASSCODE_LOCKOUT_MS,
     });
-    if (locked.ok || locked.kind !== "locked") {
+    if (locked.kind !== "locked") {
       throw new Error("expected lockout");
     }
 
-    const stillLocked = evaluateHostedPasscodeAttempt({
-      passcode: DEFAULT_HOSTED_PASSCODE,
-      expected: DEFAULT_HOSTED_PASSCODE,
-      now: 5_000 + HOSTED_PASSCODE_LOCKOUT_MS - 1,
-      state: locked.next,
-    });
-    expect(stillLocked.ok).toBe(false);
-    if (stillLocked.ok || stillLocked.kind !== "locked") {
-      throw new Error("expected lockout to still apply");
-    }
+    expect(
+      evaluateHostedPasscodeLockout({
+        now: 5_000 + HOSTED_PASSCODE_LOCKOUT_MS - 1,
+        state: locked.next,
+      }),
+    ).toMatchObject({ ok: false, kind: "locked" });
 
     expect(
-      evaluateHostedPasscodeAttempt({
-        passcode: DEFAULT_HOSTED_PASSCODE,
-        expected: DEFAULT_HOSTED_PASSCODE,
+      evaluateHostedPasscodeLockout({
         now: 5_000 + HOSTED_PASSCODE_LOCKOUT_MS,
         state: locked.next,
       }),
-    ).toEqual({ ok: true });
+    ).toBeNull();
   });
 
   it("round-trips unlock and attempt state through storage", () => {
@@ -116,5 +79,25 @@ describe("hosted passcode gate", () => {
 
     writePasscodeAttemptState({ failures: 2, lockoutUntil: 9_000 }, adapter);
     expect(readPasscodeAttemptState(adapter)).toEqual({ failures: 2, lockoutUntil: 9_000 });
+  });
+
+  it("migrates a session unlock onto durable storage", () => {
+    const local = new Map<string, string>();
+    const session = new Map<string, string>([["coda:hosted-passcode-unlocked", "1"]]);
+    const localAdapter = {
+      getItem: (key: string) => local.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        local.set(key, value);
+      },
+      removeItem: (key: string) => {
+        local.delete(key);
+      },
+    };
+    const sessionAdapter = {
+      getItem: (key: string) => session.get(key) ?? null,
+    };
+
+    expect(readPasscodeUnlocked(localAdapter, sessionAdapter)).toBe(true);
+    expect(local.get("coda:hosted-passcode-unlocked")).toBe("1");
   });
 });
