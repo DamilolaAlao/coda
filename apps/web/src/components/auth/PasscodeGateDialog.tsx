@@ -1,9 +1,14 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { connectPairing } from "../../connection/onboarding";
-import { resolvePasscodePairingHost } from "../../passcodeGate";
-import { useAtomCommand } from "../../state/use-atom-command";
+import {
+  configuredHostedPasscode,
+  emptyPasscodeAttemptState,
+  evaluateHostedPasscodeAttempt,
+  formatLockoutMessage,
+  HOSTED_PASSCODE_LENGTH,
+  readPasscodeAttemptState,
+  writePasscodeAttemptState,
+} from "../../passcodeGate";
 import {
   AlertDialog,
   AlertDialogDescription,
@@ -15,39 +20,65 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 
-export function PasscodeGateDialog({ open }: { readonly open: boolean }) {
-  const connectPairingEnvironment = useAtomCommand(connectPairing, {
-    reportFailure: false,
-  });
+export function PasscodeGateDialog({
+  open,
+  onUnlocked,
+}: {
+  readonly open: boolean;
+  readonly onUnlocked: () => void;
+}) {
   const [passcode, setPasscode] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [attemptState, setAttemptState] = useState(emptyPasscodeAttemptState);
+  const [lockoutRemainingMs, setLockoutRemainingMs] = useState(0);
 
-  const submitPasscode = useCallback(async () => {
-    const credential = passcode.trim();
-    if (!credential) {
-      setErrorMessage("Enter a passcode to continue.");
-      return;
-    }
+  useEffect(() => {
+    if (!open) return;
+    setAttemptState(readPasscodeAttemptState());
+  }, [open]);
 
-    const host = resolvePasscodePairingHost(credential);
-    if (!host) {
-      setErrorMessage("This passcode is missing a backend host.");
-      return;
-    }
+  useEffect(() => {
+    if (!open) return;
+    const tick = () => {
+      const remaining = Math.max(0, attemptState.lockoutUntil - Date.now());
+      setLockoutRemainingMs(remaining);
+    };
+    tick();
+    if (attemptState.lockoutUntil <= Date.now()) return;
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, [attemptState.lockoutUntil, open]);
 
-    setIsSubmitting(true);
-    setErrorMessage("");
-    const result = await connectPairingEnvironment({
-      host,
-      pairingCode: credential,
+  const locked = lockoutRemainingMs > 0;
+
+  const submitPasscode = useCallback(() => {
+    const result = evaluateHostedPasscodeAttempt({
+      passcode,
+      expected: configuredHostedPasscode(),
+      now: Date.now(),
+      state: attemptState,
     });
-    setIsSubmitting(false);
 
-    if (result._tag === "Failure") {
-      setErrorMessage(errorMessageFromUnknown(squashAtomCommandFailure(result)));
+    if (result.ok) {
+      writePasscodeAttemptState(emptyPasscodeAttemptState());
+      setAttemptState(emptyPasscodeAttemptState());
+      setErrorMessage("");
+      setPasscode("");
+      onUnlocked();
+      return;
     }
-  }, [connectPairingEnvironment, passcode]);
+
+    if (result.kind === "invalid_format") {
+      setErrorMessage(result.message);
+      return;
+    }
+
+    writePasscodeAttemptState(result.next);
+    setAttemptState(result.next);
+    setErrorMessage(
+      result.kind === "locked" ? formatLockoutMessage(result.remainingMs) : result.message,
+    );
+  }, [attemptState, onUnlocked, passcode]);
 
   return (
     <AlertDialog open={open}>
@@ -55,14 +86,14 @@ export function PasscodeGateDialog({ open }: { readonly open: boolean }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Authentication required</AlertDialogTitle>
           <AlertDialogDescription>
-            Enter the pairing passcode from the Coda server to unlock this browser.
+            Enter the 6-digit passcode to unlock this browser.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <form
           className="space-y-3 px-6 pb-2"
           onSubmit={(event) => {
             event.preventDefault();
-            void submitPasscode();
+            if (!locked) submitPasscode();
           }}
         >
           <label className="text-sm font-medium" htmlFor="coda-passcode">
@@ -70,40 +101,37 @@ export function PasscodeGateDialog({ open }: { readonly open: boolean }) {
           </label>
           <Input
             id="coda-passcode"
-            autoCapitalize="none"
-            autoComplete="off"
-            autoCorrect="off"
+            autoComplete="one-time-code"
             autoFocus
-            disabled={isSubmitting}
+            disabled={locked}
+            inputMode="numeric"
+            maxLength={HOSTED_PASSCODE_LENGTH}
             nativeInput
-            onChange={(event) => setPasscode(event.currentTarget.value)}
-            placeholder="Paste the JWT passcode"
+            onChange={(event) =>
+              setPasscode(event.currentTarget.value.replace(/\D/g, "").slice(0, HOSTED_PASSCODE_LENGTH))
+            }
+            pattern="\d{6}"
+            placeholder="6-digit passcode"
             spellCheck={false}
             type="password"
             value={passcode}
           />
           {errorMessage ? (
-            <p className="text-sm text-destructive whitespace-pre-wrap">{errorMessage}</p>
+            <p className="text-sm text-destructive whitespace-pre-wrap">
+              {locked ? formatLockoutMessage(lockoutRemainingMs) : errorMessage}
+            </p>
+          ) : locked ? (
+            <p className="text-sm text-destructive whitespace-pre-wrap">
+              {formatLockoutMessage(lockoutRemainingMs)}
+            </p>
           ) : null}
         </form>
         <AlertDialogFooter>
-          <Button disabled={isSubmitting} onClick={() => void submitPasscode()}>
-            {isSubmitting ? "Checking..." : "Continue"}
+          <Button disabled={locked} onClick={() => submitPasscode()}>
+            Continue
           </Button>
         </AlertDialogFooter>
       </AlertDialogPopup>
     </AlertDialog>
   );
-}
-
-function errorMessageFromUnknown(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-
-  if (typeof error === "string" && error.trim().length > 0) {
-    return error;
-  }
-
-  return "Authentication failed.";
 }
