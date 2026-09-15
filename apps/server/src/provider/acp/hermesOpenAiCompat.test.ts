@@ -50,22 +50,42 @@ describe("hermesOpenAiCompat", () => {
         ],
       }).map((model) => model.slug),
     ).toEqual(["anthropic/claude-sonnet-4.6"]);
+    expect(
+      parseOpenAiCompatibleModelsResponse([{ id: "openai/gpt-4o-mini" }]).map((model) => model.slug),
+    ).toEqual(["openai/gpt-4o-mini"]);
+    expect(
+      parseOpenAiCompatibleModelsResponse({
+        models: [{ id: "google/gemini-2.5-pro" }],
+      }).map((model) => model.slug),
+    ).toEqual(["google/gemini-2.5-pro"]);
   });
 
   it("upserts a Coda-managed provider_routing block", () => {
-    const next = applyHermesProviderRoutingYaml("model:\n  provider: openrouter\n", {
+    const next = applyHermesProviderRoutingYaml("model:\n  provider: opencode-go\n", {
+      provider: "openrouter",
       order: ["anthropic", "openai"],
       sort: "price",
     });
+    expect(next).toContain("provider: openrouter");
     expect(next).toContain("provider_routing:");
     expect(next).toContain('- "anthropic"');
-    const updated = applyHermesProviderRoutingYaml(next, { order: ["google"] });
+    const updated = applyHermesProviderRoutingYaml(next, {
+      provider: "openrouter",
+      order: ["google"],
+    });
     expect(updated.match(/provider_routing:/g)?.length).toBe(1);
     expect(updated).toContain('- "google"');
     expect(updated).not.toContain("anthropic");
-    const cleared = applyHermesProviderRoutingYaml(updated, { order: [] });
+    const custom = applyHermesProviderRoutingYaml("model:\n  provider: opencode-go\n", {
+      provider: "custom",
+      baseUrl: "https://llm.example.com/v1",
+      order: [],
+    });
+    expect(custom).toContain("provider: custom");
+    expect(custom).toContain("https://llm.example.com/v1");
+    const cleared = applyHermesProviderRoutingYaml(custom, { order: [] });
     expect(cleared).not.toContain("coda-provider-routing");
-    expect(cleared).toContain("model:");
+    expect(cleared).toContain("opencode-go");
   });
 
   it("merges OpenAI-compatible and ACP catalogs without duplicate slugs", () => {

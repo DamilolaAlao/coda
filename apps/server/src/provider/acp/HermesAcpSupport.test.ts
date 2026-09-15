@@ -87,10 +87,35 @@ describe("buildHermesAcpSpawnInput", () => {
     });
     expect(spawn.env?.OPENCODE_GO_API_KEY).toBeUndefined();
     const config = NodeFs.readFileSync(NodePath.join(hermesHome, "config.yaml"), "utf8");
+    expect(config).toContain("provider: openrouter");
     expect(config).toContain("provider_routing:");
     expect(config).toContain("sort: \"throughput\"");
     expect(config).toContain('- "anthropic"');
     expect(config).toContain('- "openai"');
+  });
+
+  it("points Hermes at a custom OpenAI-compatible endpoint", () => {
+    const hermesHome = NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "coda-hermes-"));
+    const spawn = buildHermesAcpSpawnInput(
+      {
+        binaryPath: "/usr/local/bin/hermes",
+        openCodeGoApiKey: " sk-test ",
+        openCodeGoBaseUrl: "https://llm.example.com/v1",
+      },
+      "/tmp/project",
+      { PATH: "/usr/bin", HERMES_HOME: hermesHome },
+    );
+
+    expect(spawn.env).toMatchObject({
+      OPENAI_API_KEY: "sk-test",
+      HERMES_HOME: hermesHome,
+    });
+    expect(spawn.env?.OPENCODE_GO_API_KEY).toBeUndefined();
+    expect(spawn.env?.OPENCODE_GO_BASE_URL).toBeUndefined();
+    const config = NodeFs.readFileSync(NodePath.join(hermesHome, "config.yaml"), "utf8");
+    expect(config).toContain("provider: custom");
+    expect(config).toContain("https://llm.example.com/v1");
+    expect(config).toContain("${OPENAI_API_KEY}");
   });
 });
 

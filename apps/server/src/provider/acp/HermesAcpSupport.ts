@@ -4,6 +4,7 @@ import {
   HERMES_OPENCODE_GO_API_KEY_ENV,
   HERMES_OPENCODE_GO_BASE_URL,
   HERMES_OPENCODE_GO_BASE_URL_ENV,
+  HERMES_OPENAI_API_KEY_ENV,
   HERMES_OPENROUTER_API_KEY_ENV,
   ProviderDriverKind,
 } from "@t3tools/contracts";
@@ -22,7 +23,7 @@ import {
   normalizeProviderSort,
   parseProviderSlugList,
   resolveHermesHome,
-  resolveHermesOpenAiEndpoint,
+  resolveHermesManagedProvider,
   syncHermesProviderRoutingConfig,
 } from "./hermesOpenAiCompat.ts";
 
@@ -77,7 +78,7 @@ export function buildHermesRuntimeEnvironment(
   const baseUrl = hermesSettings?.openCodeGoBaseUrl?.trim();
   const preferredOrder = parseProviderSlugList(hermesSettings?.preferredProviders);
   const providerSort = normalizeProviderSort(hermesSettings?.providerSort);
-  const endpoint = resolveHermesOpenAiEndpoint({ apiKey, baseUrl });
+  const managed = resolveHermesManagedProvider({ apiKey, baseUrl });
   const needsOverlay = Boolean(
     apiKey || baseUrl || NodePath.isAbsolute(command) || preferredOrder.length > 0 || providerSort,
   );
@@ -87,12 +88,24 @@ export function buildHermesRuntimeEnvironment(
 
   let next: NodeJS.ProcessEnv = { ...(environment ?? {}) };
   next = withHermesBinaryOnPath(command, next);
-  if (endpoint?.kind === "openrouter") {
+  if (managed?.kind === "openrouter") {
     if (apiKey) {
       next[HERMES_OPENROUTER_API_KEY_ENV] = apiKey;
     }
     syncHermesProviderRoutingConfig({
       hermesHome: resolveHermesHome(next),
+      provider: "openrouter",
+      order: preferredOrder,
+      sort: providerSort,
+    });
+  } else if (managed?.kind === "custom") {
+    if (apiKey) {
+      next[HERMES_OPENAI_API_KEY_ENV] = apiKey;
+    }
+    syncHermesProviderRoutingConfig({
+      hermesHome: resolveHermesHome(next),
+      provider: "custom",
+      baseUrl: managed.baseUrl,
       order: preferredOrder,
       sort: providerSort,
     });

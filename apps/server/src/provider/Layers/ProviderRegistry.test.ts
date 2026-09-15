@@ -648,6 +648,52 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         ]);
       });
 
+      it("drops stale Hermes models when a new OpenAI-compatible catalog succeeds", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("hermes"),
+          driver: ProviderDriverKind.make("hermes"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "unknown" },
+          checkedAt: "2026-09-15T00:00:00.000Z",
+          version: "1.0.0",
+          models: [
+            {
+              slug: "anthropic/claude-sonnet-4.6",
+              name: "Claude Sonnet",
+              isCustom: false,
+              capabilities: null,
+            },
+            {
+              slug: "kimi-k3",
+              name: "Kimi K3",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const refreshedProvider = {
+          ...previousProvider,
+          status: "warning",
+          checkedAt: "2026-09-15T00:01:00.000Z",
+          models: [
+            {
+              slug: "openai/gpt-4o-mini",
+              name: "GPT-4o mini",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+        } satisfies ServerProvider;
+
+        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
+          ...refreshedProvider.models,
+        ]);
+      });
+
       it("retains stale OpenCode models when a refresh fails", () => {
         const previousProvider = {
           instanceId: ProviderInstanceId.make("opencode"),

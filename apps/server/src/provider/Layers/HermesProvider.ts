@@ -92,7 +92,7 @@ export function buildInitialHermesProviderSnapshot(
       checkedAt,
       models,
       probe: {
-        installed: true,
+        installed: false,
         version: null,
         status: "warning",
         auth: { status: "unknown" },
@@ -133,6 +133,11 @@ function buildHermesDiscoveredModelsFromSessionModelState(
     .filter((model): model is ServerProviderModel => model !== undefined);
 }
 
+const emptyHermesOpenAiCatalog = {
+  fetched: false,
+  models: [] as ReadonlyArray<ServerProviderModel>,
+};
+
 const discoverHermesModelsViaOpenAiCompat = (hermesSettings: HermesSettings) =>
   Effect.gen(function* () {
     const endpoint = resolveHermesOpenAiEndpoint({
@@ -140,7 +145,7 @@ const discoverHermesModelsViaOpenAiCompat = (hermesSettings: HermesSettings) =>
       baseUrl: hermesSettings.openCodeGoBaseUrl,
     });
     if (!endpoint) {
-      return [] as ReadonlyArray<ServerProviderModel>;
+      return emptyHermesOpenAiCatalog;
     }
     const models = yield* Effect.tryPromise({
       try: () =>
@@ -154,16 +159,32 @@ const discoverHermesModelsViaOpenAiCompat = (hermesSettings: HermesSettings) =>
       yield* Effect.logWarning(
         `Hermes OpenAI-compatible /models timed out after ${HERMES_OPENAI_MODELS_TIMEOUT_MS}ms.`,
       );
-      return [];
+      return emptyHermesOpenAiCatalog;
     }
-    return models.value;
+    return { fetched: true, models: models.value };
   }).pipe(
     Effect.catchCause((cause) =>
       Effect.logWarning("Hermes OpenAI-compatible /models listing failed", {
         errorTag: causeErrorTag(cause),
-      }).pipe(Effect.as([] as ReadonlyArray<ServerProviderModel>)),
+      }).pipe(Effect.as(emptyHermesOpenAiCatalog)),
     ),
   );
+
+function hermesModelsFromDiscovery(input: {
+  readonly customModels: ReadonlyArray<string> | undefined;
+  readonly fetchedOpenAi: boolean;
+  readonly openAiModels: ReadonlyArray<ServerProviderModel>;
+  readonly acpModels?: ReadonlyArray<ServerProviderModel>;
+}): ReadonlyArray<ServerProviderModel> {
+  const discovered = mergeHermesCatalogModels(input.openAiModels, input.acpModels ?? []);
+  if (input.fetchedOpenAi) {
+    return hermesModelsFromSettings(input.customModels, discovered);
+  }
+  if (discovered.length > 0) {
+    return hermesModelsFromSettings(input.customModels, discovered);
+  }
+  return hermesModelsFromSettings(input.customModels);
+}
 
 const discoverHermesModelsViaAcp = (
   hermesSettings: HermesSettings,
@@ -294,7 +315,7 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
     });
   }
 
-  const openAiModels = yield* discoverHermesModelsViaOpenAiCompat(hermesSettings);
+  const openAiCatalog = yield* discoverHermesModelsViaOpenAiCompat(hermesSettings);
   const discoveryExit = yield* discoverHermesModelsViaAcp(hermesSettings, environment).pipe(
     Effect.timeoutOption(HERMES_ACP_MODEL_DISCOVERY_TIMEOUT_MS),
     Effect.exit,
@@ -307,14 +328,15 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
       presentation: HERMES_PRESENTATION,
       enabled: hermesSettings.enabled,
       checkedAt,
-      models:
-        openAiModels.length > 0
-          ? hermesModelsFromSettings(hermesSettings.customModels, openAiModels)
-          : fallbackModels,
+      models: hermesModelsFromDiscovery({
+        customModels: hermesSettings.customModels,
+        fetchedOpenAi: openAiCatalog.fetched,
+        openAiModels: openAiCatalog.models,
+      }),
       probe: {
         installed: true,
         version,
-        status: "error",
+        status: openAiCatalog.fetched ? "warning" : "error",
         auth: { status: "unknown" },
         message: "Hermes CLI is installed but ACP startup failed. Check server logs for details.",
       },
@@ -328,31 +350,32 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
       presentation: HERMES_PRESENTATION,
       enabled: hermesSettings.enabled,
       checkedAt,
-      models:
-        openAiModels.length > 0
-          ? hermesModelsFromSettings(hermesSettings.customModels, openAiModels)
-          : fallbackModels,
+      models: hermesModelsFromDiscovery({
+        customModels: hermesSettings.customModels,
+        fetchedOpenAi: openAiCatalog.fetched,
+        openAiModels: openAiCatalog.models,
+      }),
       probe: {
         installed: true,
         version,
-        status: "error",
+        status: openAiCatalog.fetched ? "warning" : "error",
         auth: { status: "unknown" },
         message: `Hermes CLI is installed but ACP startup timed out after ${HERMES_ACP_MODEL_DISCOVERY_TIMEOUT_MS}ms.`,
       },
     });
   }
   const acpModels = discoveryExit.value.value;
-  const discoveredModels = mergeHermesCatalogModels(openAiModels, acpModels);
-  const models =
-    discoveredModels.length > 0
-      ? hermesModelsFromSettings(hermesSettings.customModels, discoveredModels)
-      : fallbackModels;
 
   return buildServerProvider({
     presentation: HERMES_PRESENTATION,
     enabled: hermesSettings.enabled,
     checkedAt,
-    models,
+    models: hermesModelsFromDiscovery({
+      customModels: hermesSettings.customModels,
+      fetchedOpenAi: openAiCatalog.fetched,
+      openAiModels: openAiCatalog.models,
+      acpModels,
+    }),
     probe: {
       installed: true,
       version,

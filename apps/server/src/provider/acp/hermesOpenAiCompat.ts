@@ -3,7 +3,10 @@ import * as NodeOs from "node:os";
 import * as NodePath from "node:path";
 
 import {
+  HERMES_DEFAULT_MODEL,
+  HERMES_OPENAI_API_KEY_ENV,
   HERMES_OPENCODE_GO_BASE_URL,
+  HERMES_OPENCODE_GO_PROVIDER,
   HERMES_OPENROUTER_BASE_URL,
   type ServerProviderModel,
 } from "@t3tools/contracts";
@@ -61,6 +64,36 @@ export function resolveHermesOpenAiEndpoint(input: {
   return { kind: "openai-compat", baseUrl: baseUrl || HERMES_OPENCODE_GO_BASE_URL };
 }
 
+export function isOpenCodeGoBaseUrl(raw: string | undefined): boolean {
+  const trimmed = raw?.trim();
+  if (!trimmed) return false;
+  try {
+    const actual = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+    const expected = new URL(HERMES_OPENCODE_GO_BASE_URL);
+    const normalize = (url: URL) => `${url.host}${url.pathname.replace(/\/+$/, "")}`.toLowerCase();
+    return normalize(actual) === normalize(expected);
+  } catch {
+    return false;
+  }
+}
+
+export type HermesManagedProvider = "openrouter" | "custom" | "opencode-go";
+
+export function resolveHermesManagedProvider(input: {
+  readonly apiKey?: string;
+  readonly baseUrl?: string;
+}): { readonly kind: HermesManagedProvider; readonly baseUrl: string } | undefined {
+  const endpoint = resolveHermesOpenAiEndpoint(input);
+  if (!endpoint) return undefined;
+  if (endpoint.kind === "openrouter") {
+    return { kind: "openrouter", baseUrl: endpoint.baseUrl };
+  }
+  if (isOpenCodeGoBaseUrl(endpoint.baseUrl)) {
+    return { kind: "opencode-go", baseUrl: endpoint.baseUrl };
+  }
+  return { kind: "custom", baseUrl: endpoint.baseUrl };
+}
+
 export function resolveHermesHome(environment?: NodeJS.ProcessEnv): string {
   const fromEnv = environment?.HERMES_HOME?.trim();
   if (fromEnv) return fromEnv;
@@ -90,8 +123,12 @@ export function openAiCompatibleModelsUrl(baseUrl: string): string {
 export function parseOpenAiCompatibleModelsResponse(
   payload: unknown,
 ): ReadonlyArray<ServerProviderModel> {
-  if (!payload || typeof payload !== "object") return [];
-  const data = (payload as { data?: unknown }).data;
+  const data = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === "object"
+      ? ((payload as { data?: unknown; models?: unknown }).data ??
+        (payload as { models?: unknown }).models)
+      : undefined;
   if (!Array.isArray(data)) return [];
   const seen = new Set<string>();
   const models: ServerProviderModel[] = [];
@@ -118,11 +155,16 @@ export async function fetchOpenAiCompatibleModels(input: {
   readonly baseUrl: string;
   readonly apiKey: string;
 }): Promise<ReadonlyArray<ServerProviderModel>> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${input.apiKey}`,
+    Accept: "application/json",
+  };
+  if (isOpenRouterBaseUrl(input.baseUrl)) {
+    headers["HTTP-Referer"] = "https://t3.codes";
+    headers["X-OpenRouter-Title"] = "Coda";
+  }
   const response = await fetch(openAiCompatibleModelsUrl(input.baseUrl), {
-    headers: {
-      Authorization: `Bearer ${input.apiKey}`,
-      Accept: "application/json",
-    },
+    headers,
   });
   if (!response.ok) {
     throw new Error(`OpenAI-compatible /models returned ${response.status}`);
@@ -131,17 +173,32 @@ export async function fetchOpenAiCompatibleModels(input: {
 }
 
 export function renderHermesProviderRoutingBlock(input: {
+  readonly provider?: HermesManagedProvider;
+  readonly baseUrl?: string;
   readonly order: ReadonlyArray<string>;
   readonly sort?: string;
 }): string {
-  const lines = [CODA_ROUTING_START, "provider_routing:"];
-  if (input.sort) {
-    lines.push(`  sort: ${JSON.stringify(input.sort)}`);
+  const lines = [CODA_ROUTING_START];
+  if (input.provider === "openrouter") {
+    lines.push("model:", "  provider: openrouter");
+  } else if (input.provider === "custom" && input.baseUrl) {
+    lines.push(
+      "model:",
+      "  provider: custom",
+      `  base_url: ${JSON.stringify(input.baseUrl)}`,
+      `  api_key: \${${HERMES_OPENAI_API_KEY_ENV}}`,
+    );
   }
-  if (input.order.length > 0) {
-    lines.push("  order:");
-    for (const slug of input.order) {
-      lines.push(`    - ${JSON.stringify(slug)}`);
+  if (input.provider === "openrouter" && (input.sort || input.order.length > 0)) {
+    lines.push("provider_routing:");
+    if (input.sort) {
+      lines.push(`  sort: ${JSON.stringify(input.sort)}`);
+    }
+    if (input.order.length > 0) {
+      lines.push("  order:");
+      for (const slug of input.order) {
+        lines.push(`    - ${JSON.stringify(slug)}`);
+      }
     }
   }
   lines.push(CODA_ROUTING_END);
@@ -153,26 +210,43 @@ const MANAGED_ROUTING_BLOCK_RE = new RegExp(
   "g",
 );
 
+const TOP_LEVEL_MODEL_RE = /(?:^|\n)model:\n(?:[ \t]+[^\n]*\n)*/g;
+
+function withoutTopLevelModel(yaml: string): string {
+  return yaml.replace(TOP_LEVEL_MODEL_RE, "\n");
+}
+
 export function applyHermesProviderRoutingYaml(
   existing: string,
-  input: { readonly order: ReadonlyArray<string>; readonly sort?: string },
+  input: {
+    readonly provider?: HermesManagedProvider;
+    readonly baseUrl?: string;
+    readonly order: ReadonlyArray<string>;
+    readonly sort?: string;
+  },
 ): string {
-  if (input.order.length === 0 && !input.sort) {
-    return existing.replace(MANAGED_ROUTING_BLOCK_RE, "\n").replace(/\n{3,}/g, "\n\n");
+  const withoutManaged = existing.replace(MANAGED_ROUTING_BLOCK_RE, "\n");
+  const shouldWrite =
+    input.provider === "openrouter" ||
+    input.provider === "custom" ||
+    input.order.length > 0 ||
+    Boolean(input.sort);
+  if (!shouldWrite) {
+    const next = withoutManaged.replace(/\n{3,}/g, "\n\n").trim();
+    if (next.length === 0 || !/(?:^|\n)model:/m.test(`\n${next}`)) {
+      return `model:\n  default: ${HERMES_DEFAULT_MODEL}\n  provider: ${HERMES_OPENCODE_GO_PROVIDER}\n`;
+    }
+    return `${next}\n`;
   }
+  const remainder = withoutTopLevelModel(withoutManaged).trimEnd();
   const block = renderHermesProviderRoutingBlock(input);
-  if (existing.includes(CODA_ROUTING_START) && existing.includes(CODA_ROUTING_END)) {
-    return existing.replace(
-      new RegExp(`${CODA_ROUTING_START}[\\s\\S]*?${CODA_ROUTING_END}\\n?`),
-      block,
-    );
-  }
-  const trimmed = existing.trimEnd();
-  return `${trimmed}${trimmed.length > 0 ? "\n\n" : ""}${block}`;
+  return `${remainder}${remainder.length > 0 ? "\n\n" : ""}${block}`;
 }
 
 export function syncHermesProviderRoutingConfig(input: {
   readonly hermesHome: string;
+  readonly provider?: HermesManagedProvider;
+  readonly baseUrl?: string;
   readonly order: ReadonlyArray<string>;
   readonly sort?: string;
 }): void {
@@ -187,7 +261,12 @@ export function syncHermesProviderRoutingConfig(input: {
   if (next === existing) {
     return;
   }
-  if (input.order.length === 0 && !input.sort && existing.length === 0) {
+  const shouldWrite =
+    input.provider === "openrouter" ||
+    input.provider === "custom" ||
+    input.order.length > 0 ||
+    Boolean(input.sort);
+  if (!shouldWrite && existing.length === 0) {
     return;
   }
   NodeFs.mkdirSync(input.hermesHome, { recursive: true });

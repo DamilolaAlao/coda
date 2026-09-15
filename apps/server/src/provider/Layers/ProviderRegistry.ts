@@ -79,16 +79,17 @@ const hasModelCapabilities = (model: ServerProvider["models"][number]): boolean 
   (model.capabilities?.optionDescriptors?.length ?? 0) > 0;
 
 const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean => {
-  if (provider.driver !== ProviderDriverKind.make("opencode")) {
+  const driver = provider.driver;
+  if (driver !== ProviderDriverKind.make("opencode") && driver !== ProviderDriverKind.make("hermes")) {
     return true;
   }
 
-  // OpenCode's initial snapshot is deliberately non-authoritative while its
-  // first probe is still running. A probe error from an installed CLI/server
-  // is likewise partial: it could not establish the current inventory.
-  // Conversely, disabled and missing-CLI snapshots are authoritative removals,
-  // as are successful ready/warning inventories (including an empty one after
-  // logout or plugin removal).
+  // OpenCode and Hermes catalogs come from a live inventory (`opencode models`
+  // or OpenAI-compatible GET /models). The initial snapshot is deliberately
+  // non-authoritative while that first probe is still running. A probe error
+  // from an installed CLI is likewise partial. Successful ready/warning
+  // inventories replace the previous list so a new API or plugin set does not
+  // keep stale slugs.
   const isPendingInitialProbe =
     provider.enabled && !provider.installed && provider.status === "warning";
   const didInstalledProviderProbeFail = provider.installed && provider.status === "error";

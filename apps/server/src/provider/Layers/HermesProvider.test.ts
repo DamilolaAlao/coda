@@ -26,7 +26,7 @@ describe("buildInitialHermesProviderSnapshot", () => {
     Effect.gen(function* () {
       const snapshot = yield* buildInitialHermesProviderSnapshot(decodeHermesSettings({}));
       expect(snapshot.enabled).toBe(true);
-      expect(snapshot.installed).toBe(true);
+      expect(snapshot.installed).toBe(false);
       expect(snapshot.status).toBe("warning");
       expect(snapshot.version).toBeNull();
       expect(snapshot.message).toContain("Checking Hermes");
