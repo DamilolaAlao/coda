@@ -10,6 +10,60 @@ import * as GitHubCredentialStore from "./GitHubCredentialStore.ts";
 import * as GitHubOAuth from "./GitHubOAuth.ts";
 import { GitHubTenant } from "./GitHubTenant.ts";
 
+describe("GitHub OAuth env", () => {
+  const previous = {
+    id: process.env.GITHUB_CLIENT_ID,
+    secret: process.env.GITHUB_CLIENT_SECRET,
+    redirect: process.env.GITHUB_REDIRECT_URI,
+    publicUrl: process.env.T3CODE_PUBLIC_URL,
+  };
+
+  const restore = () => {
+    process.env.GITHUB_CLIENT_ID = previous.id;
+    process.env.GITHUB_CLIENT_SECRET = previous.secret;
+    process.env.GITHUB_REDIRECT_URI = previous.redirect;
+    process.env.T3CODE_PUBLIC_URL = previous.publicUrl;
+  };
+
+  it("ignores pack placeholders so GitHub is not opened with a fake client id", () => {
+    process.env.GITHUB_CLIENT_ID = "__GITHUB_CLIENT_ID__";
+    process.env.GITHUB_CLIENT_SECRET = "__GITHUB_CLIENT_SECRET__";
+    expect(GitHubOAuth.oauthConfig()).toBeNull();
+    process.env.GITHUB_CLIENT_ID = "123456";
+    process.env.GITHUB_CLIENT_SECRET = "secret";
+    expect(GitHubOAuth.oauthConfig()).toBeNull();
+    process.env.GITHUB_CLIENT_ID = "Iv23abcdefghijklmnop";
+    process.env.GITHUB_CLIENT_SECRET = "github-app-secret";
+    expect(GitHubOAuth.oauthConfig()?.clientId).toBe("Iv23abcdefghijklmnop");
+    restore();
+  });
+
+  it("omits OAuth scopes for GitHub App client IDs so authorize does not 404", () => {
+    const appUrl = GitHubOAuth.buildGitHubAuthorizeUrl({
+      clientId: "Iv23abcdefghijklmnop",
+      redirectUri: "https://www.iointel.dev/api/auth/github/callback",
+      state: "state-1",
+    });
+    expect(appUrl).toContain("https://github.com/login/oauth/authorize");
+    expect(appUrl).not.toContain("scope=");
+    const oauthAppUrl = GitHubOAuth.buildGitHubAuthorizeUrl({
+      clientId: "0123456789abcdef0123",
+      redirectUri: "https://www.iointel.dev/api/auth/github/callback",
+      state: "state-1",
+    });
+    expect(oauthAppUrl).toContain("scope=repo");
+  });
+
+  it("builds the callback from the public URL when the redirect placeholder is left in", () => {
+    process.env.GITHUB_REDIRECT_URI = "__GITHUB_REDIRECT_URI__";
+    process.env.T3CODE_PUBLIC_URL = "https://www.iointel.dev";
+    expect(GitHubOAuth.configuredCallbackUrl()).toBe(
+      "https://www.iointel.dev/api/auth/github/callback",
+    );
+    restore();
+  });
+});
+
 describe("GitHub OAuth completion page", () => {
   it("notifies the opener without putting tokens in the page", () => {
     const html = GitHubOAuth.renderGitHubOAuthCompletionHtml({
@@ -43,7 +97,7 @@ describe("GitHubOAuth.start", () => {
       secret: process.env.GITHUB_CLIENT_SECRET,
       redirect: process.env.GITHUB_REDIRECT_URI,
     };
-    process.env.GITHUB_CLIENT_ID = "test-client";
+    process.env.GITHUB_CLIENT_ID = "Iv23abcdefghijklmnop";
     process.env.GITHUB_CLIENT_SECRET = "test-secret";
     process.env.GITHUB_REDIRECT_URI = "https://coda.example/api/auth/github/callback";
     const sessionId = AuthSessionId.make("oauth-tenant");
@@ -59,7 +113,8 @@ describe("GitHubOAuth.start", () => {
       const oauth = yield* GitHubOAuth.GitHubOAuth;
       const result = yield* oauth.start;
       expect(result.authorizeUrl).toContain("https://github.com/login/oauth/authorize");
-      expect(result.authorizeUrl).toContain("client_id=test-client");
+      expect(result.authorizeUrl).toContain("client_id=Iv23abcdefghijklmnop");
+      expect(result.authorizeUrl).not.toContain("scope=");
       expect(result.authorizeUrl).toContain("state=state-for-oauth-tenant");
       expect(result.authorizeUrl).not.toContain("test-secret");
       expect(result.authorizeUrl).not.toContain("gho_");

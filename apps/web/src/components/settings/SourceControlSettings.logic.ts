@@ -67,8 +67,21 @@ export function shouldShowHostedGitHubAuthGate(input: {
   readonly managedOAuthAvailable: boolean | null;
 }): boolean {
   if (input.pairingRoute || input.githubConnected === true) return false;
+  if (input.managedOAuthAvailable === false) return false;
   if (input.unlocked) return true;
   return input.managedOAuthAvailable === true;
+}
+
+export function githubAuthorizeHref(authorizeUrl: string): string | null {
+  try {
+    const url = new URL(authorizeUrl);
+    if (url.protocol !== "https:" || url.hostname !== "github.com") {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 export function parseGitHubOAuthCompletionMessage(data: unknown): "connected" | "failed" | null {
@@ -79,9 +92,14 @@ export function parseGitHubOAuthCompletionMessage(data: unknown): "connected" | 
 
 export function openGitHubAuthorizePopup(authorizeUrl: string) {
   return new Promise<"connected" | "failed" | "dismissed">((resolve) => {
-    const popup = window.open(authorizeUrl, GITHUB_OAUTH_POPUP_NAME, "popup=yes,width=600,height=760");
+    const href = githubAuthorizeHref(authorizeUrl);
+    if (href === null) {
+      resolve("failed");
+      return;
+    }
+    const popup = window.open(href, GITHUB_OAUTH_POPUP_NAME, "popup=yes,width=600,height=760");
     if (popup === null) {
-      window.location.assign(authorizeUrl);
+      window.location.assign(href);
       return;
     }
     const onMessage = (event: MessageEvent) => {

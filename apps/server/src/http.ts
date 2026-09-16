@@ -128,7 +128,7 @@ const STATIC_ASSET_EXTENSIONS = new Set([
 
 export function shouldSpaFallbackMissingFile(requestPath: string): boolean {
   const pathname = (requestPath.split("?")[0] ?? requestPath).toLowerCase();
-  if (pathname.startsWith("/assets/")) {
+  if (pathname.startsWith("/assets/") || pathname === "/api" || pathname.startsWith("/api/")) {
     return false;
   }
 

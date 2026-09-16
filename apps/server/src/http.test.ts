@@ -67,6 +67,8 @@ describe("static SPA fallback", () => {
     expect(shouldSpaFallbackMissingFile("/assets/index-V3JMfx7D.css")).toBe(false);
     expect(shouldSpaFallbackMissingFile("/favicon.ico")).toBe(false);
     expect(shouldSpaFallbackMissingFile("/harnesses/claude.svg")).toBe(false);
+    expect(shouldSpaFallbackMissingFile("/api/auth/github/callback")).toBe(false);
+    expect(shouldSpaFallbackMissingFile("/api/missing")).toBe(false);
   });
 });
 

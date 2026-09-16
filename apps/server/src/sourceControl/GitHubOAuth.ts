@@ -25,6 +25,8 @@ import { GitHubTenant } from "./GitHubTenant.ts";
 export const GITHUB_OAUTH_CALLBACK_PATH = "/api/auth/github/callback";
 export const GITHUB_OAUTH_MESSAGE_TYPE = "t3.github-oauth";
 const GITHUB_OAUTH_SCOPES = "repo read:org workflow gist";
+const PLACEHOLDER_ENV_VALUE = /^(?:__[A-Z0-9_]+__|your-github-.+)$/i;
+const GITHUB_OAUTH_CLIENT_ID = /^(?:Iv\d+[A-Za-z0-9._-]+|[0-9A-Fa-f]{20,})$/;
 
 const GitHubOAuthTokenResponse = Schema.Struct({
   access_token: Schema.String,
@@ -36,17 +38,65 @@ const GitHubUserResponse = Schema.Struct({
   login: Schema.String,
 });
 
+export function readConfiguredSecret(value: string | undefined): string | null {
+  const trimmed = value?.trim().replace(/^['"]|['"]$/g, "") ?? "";
+  if (!trimmed || PLACEHOLDER_ENV_VALUE.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
 export function oauthConfig() {
-  const clientId = process.env.GITHUB_CLIENT_ID?.trim();
-  const clientSecret = process.env.GITHUB_CLIENT_SECRET?.trim();
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
+  const clientId = readConfiguredSecret(process.env.GITHUB_CLIENT_ID);
+  const clientSecret = readConfiguredSecret(process.env.GITHUB_CLIENT_SECRET);
+  if (!clientId || !clientSecret || !GITHUB_OAUTH_CLIENT_ID.test(clientId)) {
+    return null;
+  }
+  return { clientId, clientSecret };
+}
+
+export function isGitHubAppClientId(clientId: string): boolean {
+  return clientId.startsWith("Iv");
+}
+
+export function buildGitHubAuthorizeUrl(input: {
+  readonly clientId: string;
+  readonly redirectUri: string;
+  readonly state: string;
+}): string {
+  const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
+  authorizeUrl.searchParams.set("client_id", input.clientId);
+  authorizeUrl.searchParams.set("redirect_uri", input.redirectUri);
+  authorizeUrl.searchParams.set("state", input.state);
+  // GitHub Apps take permissions from the app, not OAuth scopes. Sending
+  // `scope=repo…` makes github.com/login/oauth/authorize 404.
+  if (!isGitHubAppClientId(input.clientId)) {
+    authorizeUrl.searchParams.set("scope", GITHUB_OAUTH_SCOPES);
+  }
+  return authorizeUrl.toString();
 }
 
 export function configuredCallbackUrl(): string | null {
-  const configured = process.env.GITHUB_REDIRECT_URI?.trim();
-  if (configured) return configured;
-  const publicUrl = process.env.T3CODE_PUBLIC_URL?.trim();
-  return publicUrl ? new URL(GITHUB_OAUTH_CALLBACK_PATH, publicUrl).toString() : null;
+  const configured = readConfiguredSecret(process.env.GITHUB_REDIRECT_URI);
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        return url.toString();
+      }
+    } catch {
+      return null;
+    }
+  }
+  const publicUrl = readConfiguredSecret(process.env.T3CODE_PUBLIC_URL);
+  if (!publicUrl) {
+    return null;
+  }
+  try {
+    return new URL(GITHUB_OAUTH_CALLBACK_PATH, publicUrl).toString();
+  } catch {
+    return null;
+  }
 }
 
 function requestCallbackUrl(request: HttpServerRequest.HttpServerRequest): string | null {
@@ -173,12 +223,13 @@ export const make = Effect.gen(function* () {
       sessionId: tenant.sessionId,
       redirectUri,
     });
-    const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
-    authorizeUrl.searchParams.set("client_id", oauth.clientId);
-    authorizeUrl.searchParams.set("redirect_uri", redirectUri);
-    authorizeUrl.searchParams.set("scope", GITHUB_OAUTH_SCOPES);
-    authorizeUrl.searchParams.set("state", state);
-    return { authorizeUrl: authorizeUrl.toString() };
+    return {
+      authorizeUrl: buildGitHubAuthorizeUrl({
+        clientId: oauth.clientId,
+        redirectUri,
+        state,
+      }),
+    };
   });
 
   const revokeSessionCredential: GitHubOAuth["Service"]["revokeSessionCredential"] = (sessionId) =>

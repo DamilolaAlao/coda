@@ -18,7 +18,7 @@ Never put a live pairing PIN or deploy token in git.
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `T3CODE_PAIRING_CODE`  | Six-digit PIN. Set in `deploy/zerops/.env` (gitignored) for `pack.sh`, or in the Zerops service env UI. If unset or not six digits, passcode pairing is off. |
 | `T3CODE_PUBLIC_URL`    | Public `https://` origin. Used as the pairing JWT audience. Same sources as the PIN.                                                                         |
-| `GITHUB_CLIENT_ID`     | Client ID for the GitHub OAuth app used by Settings → Source Control. Set in the Zerops service env UI.                                                      |
+| `GITHUB_CLIENT_ID`     | GitHub App or OAuth App client ID (`Iv23…` for GitHub Apps). Placeholders and numeric App IDs are ignored. GitHub Apps must be public if anyone besides the owner will click Continue with GitHub. Set in the Zerops service env UI. |
 | `GITHUB_CLIENT_SECRET` | Client secret for the GitHub OAuth app. Set in the Zerops service env UI.                                                                                    |
 | `GITHUB_REDIRECT_URI`  | Exact public callback URL: `https://<stack-host>/api/auth/github/callback`. Set in Zerops and register the same URL in the GitHub OAuth app. The callback stays public HTTP; Connect GitHub itself is an authenticated RPC that stores a one-time state for that client session. |
 | Zerops token           | `zcli login`, not the repo                                                                                                                                   |
@@ -67,6 +67,11 @@ zcli service push stack -P <project-id> --working-dir /tmp/coda-zerops --no-git
 `pack.sh` stamps `IMAGE_TAG` with the current git short SHA (cache-busting only) and substitutes
 the public URL and pairing code from the environment or `deploy/zerops/.env`. GitHub OAuth secrets
 remain service-level Zerops environment variables and are not copied into the push directory.
+
+If `GITHUB_CLIENT_ID` starts with `Iv`, Coda treats it as a GitHub App and omits OAuth `scope` on
+the authorize URL. Classic OAuth Apps still send `repo read:org workflow gist`. Unpublished GitHub
+Apps 404 for anyone who is not the owner; publish the app in GitHub → Settings → Developer settings
+if other people need Continue with GitHub.
 
 Do not set a `PATH` env var in `zerops.yml`; Zerops reserves that key.
 

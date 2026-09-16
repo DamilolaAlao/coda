@@ -3,6 +3,7 @@ import * as Option from "effect/Option";
 
 import {
   canDisconnectManagedGitHub,
+  githubAuthorizeHref,
   githubAuthSourceLabel,
   GITHUB_OAUTH_MESSAGE_TYPE,
   parseGitHubOAuthCompletionMessage,
@@ -109,6 +110,22 @@ describe("GitHub auth presentation", () => {
     ).toBe(false);
     expect(
       shouldShowHostedGitHubAuthGate({
+        pairingRoute: false,
+        unlocked: true,
+        githubConnected: false,
+        managedOAuthAvailable: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowHostedGitHubAuthGate({
+        pairingRoute: false,
+        unlocked: true,
+        githubConnected: false,
+        managedOAuthAvailable: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowHostedGitHubAuthGate({
         pairingRoute: true,
         unlocked: true,
         githubConnected: false,
@@ -131,5 +148,13 @@ describe("GitHub auth presentation", () => {
         managedOAuthAvailable: true,
       }),
     ).toBe(true);
+  });
+
+  it("only opens GitHub.com HTTPS authorize URLs", () => {
+    expect(
+      githubAuthorizeHref("https://github.com/login/oauth/authorize?client_id=Iv23abc"),
+    ).toContain("https://github.com/login/oauth/authorize");
+    expect(githubAuthorizeHref("/login/oauth/authorize?client_id=Iv23abc")).toBeNull();
+    expect(githubAuthorizeHref("https://www.iointel.dev/login/oauth/authorize")).toBeNull();
   });
 });
