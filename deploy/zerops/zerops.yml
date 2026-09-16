@@ -62,4 +62,7 @@ zerops:
         CODA_DEPLOYMENTS_HOME: /srv/coda-data/deployments
         T3CODE_PUBLIC_URL: __T3CODE_PUBLIC_URL__
         T3CODE_PAIRING_CODE: "__T3CODE_PAIRING_CODE__"
+        GITHUB_CLIENT_ID: __GITHUB_CLIENT_ID__
+        GITHUB_CLIENT_SECRET: __GITHUB_CLIENT_SECRET__
+        GITHUB_REDIRECT_URI: __GITHUB_REDIRECT_URI__
       start: /bin/sh /var/www/start.sh
