@@ -1,65 +1,66 @@
 # Contributing
 
-## Read This First
+Thanks for wanting to help. Coda is MIT-licensed and this tree is public.
 
-We are not actively accepting contributions right now.
+Read [AGENTS.md](./AGENTS.md) before you change anything. It is the map of the
+repo, the product constraints, and the language we use (environment, project,
+thread, turn, provider, client).
 
-You can still open an issue or PR, but please do so knowing there is a high chance we close it, defer it forever, or never look at it.
+Also read the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
-If that sounds annoying, that is because it is. This project is still early and we are trying to keep scope, quality, and direction under control.
-
-PRs are automatically labeled with a `vouch:*` trust status and a `size:*` diff size based on changed lines.
-
-If you are an external contributor, expect `vouch:unvouched` until we explicitly add you to [.github/VOUCHED.td](.github/VOUCHED.td).
-
-## What We Are Most Likely To Accept
+## What lands
 
 Small, focused bug fixes.
 
-Small reliability fixes.
+Reliability and performance fixes.
 
-Small performance improvements.
+Docs that match shipped behavior.
 
-Tightly scoped maintenance work that clearly improves the project without changing its direction.
+Tightly scoped maintenance that clearly improves the project.
 
-## What We Are Least Likely To Accept
+## What usually does not
 
-Large PRs.
+Large PRs that mix unrelated work.
 
-Drive-by feature work.
+Drive-by features that expand product scope.
 
 Opinionated rewrites.
 
-Anything that expands product scope without us asking for it first.
+If the change is non-trivial, [open an issue](https://github.com/DamilolaAlao/coda/issues/new/choose)
+first so we can agree on the shape.
 
-If you open a 1,000+ line PR full of new features, we will probably close it quickly and remember that you ignored the clearly written instructions.
+## Pull requests
 
-## If You Still Want To Open A PR
+Keep the diff small. One concern per PR.
 
-Keep it small.
+Explain what changed and why. Conventional commit titles, plain language:
+`fix(web): new threads no longer spike CPU`.
 
-Explain exactly what changed.
+UI changes need before/after images. Motion or timing needs a short video.
 
-Explain exactly why the change should exist.
+PRs are labeled with `vouch:*` and `size:*`. External contributors start as
+`vouch:unvouched` until they are listed in [.github/VOUCHED.td](.github/VOUCHED.td).
+That is a review-priority signal, not a ban.
 
-Do not mix unrelated fixes together.
+Do not commit pairing codes, GitHub client secrets, provider keys, or live
+`.t3` databases.
 
-If the PR makes anything resembling a UI change, include clear before/after images.
+## Setup
 
-If the change depends on motion, timing, transitions, or interaction details, include a short video.
+Install the global `vp` CLI from [Vite+](https://viteplus.dev/guide/), then:
 
-If we have to guess what changed, we are much less likely to review it.
+```bash
+vp i
+vp run typecheck
+vp test run <files-you-touched>
+```
 
-## Issues First
+Do not run repo-wide `vp check` or the full test suite unless a maintainer asks.
+CI owns that.
 
-If you are thinking about a non-trivial change, open an issue first.
+Worktree state belongs in `<worktree>/.t3`. Never point a dev server at live
+`~/.t3/userdata`.
 
-That still does not mean we will want the PR, but it gives you a chance to avoid wasting your time.
+## Security
 
-## Be Realistic
-
-Opening a PR does not create an obligation on our side.
-
-We may close it. We may ignore it. We may ask you to shrink it. We may reimplement the idea ourselves later.
-
-If you are fine with that, proceed.
+Report vulnerabilities privately: [SECURITY.md](./SECURITY.md).

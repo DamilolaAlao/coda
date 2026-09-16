@@ -1,6 +1,8 @@
 # Coda
 
-Coda is an "agent harness control surface". It enables control of the agents on your machine with a web app ([hosted](https://coda-five-rho.vercel.app)), a local server, and [Electron-based desktop](https://github.com/DamilolaAlao/coda) and mobile clients.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Coda is an "agent harness control surface". It enables control of the agents on your machine with a web app ([hosted](https://www.iointel.dev)), a local server, and [Electron-based desktop](https://github.com/DamilolaAlao/coda) and mobile clients.
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, Hermes, and OpenCode. If they're set up on your computer, Coda can control them.
 
@@ -68,9 +70,14 @@ The AUR packaging is maintained in this repository under [`packaging/aur`](./pac
 
 ## Some notes
 
-We are very very early in this project. Expect bugs.
+We are very early in this project. Expect bugs.
 
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
+This repository is MIT-licensed. Small, focused fixes and docs are welcome. Read
+[CONTRIBUTING.md](./CONTRIBUTING.md) and the [Code of Conduct](./CODE_OF_CONDUCT.md) before
+opening a PR. Security reports go through [SECURITY.md](./SECURITY.md), not public issues.
+
+Coda was created by [T3 Tools](https://t3.codes). This tree is a public fork with a hosted
+instance at [iointel.dev](https://www.iointel.dev).
 
 ## Documentation
 
@@ -89,7 +96,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 
 Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
 
-## If you REALLY want to contribute still.... read this first
+## Contributing from source
 
 ### Install `vp`
 
@@ -118,3 +125,5 @@ vp i
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
 
 Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+
+License: [MIT](./LICENSE).

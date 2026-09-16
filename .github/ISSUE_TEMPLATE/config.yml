@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/DamilolaAlao/coda/security/advisories/new
+    about: Privately report a security issue. Do not file a public bug.
+  - name: Documentation
+    url: https://github.com/DamilolaAlao/coda/tree/main/docs
+    about: User, internals, and operations docs live in docs/
