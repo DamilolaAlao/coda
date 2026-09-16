@@ -38,35 +38,7 @@ Tip: Use `npx t3@latest --help` for the full CLI reference.
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/DamilolaAlao/coda/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
+Install the latest version of the desktop app from [GitHub Releases](https://github.com/DamilolaAlao/coda/releases).
 
 ## Some notes
 
@@ -77,7 +49,7 @@ This repository is MIT-licensed. Small, focused fixes and docs are welcome. Read
 opening a PR. Security reports go through [SECURITY.md](./SECURITY.md), not public issues.
 
 Coda was created by [T3 Tools](https://t3.codes) as [T3 Code](https://github.com/pingdotgg/t3code).
-This repository is a public fork. **Changes in this tree take precedence over upstream.**
+This repository is the **Coda** fork. Changes here take precedence over upstream.
 Hosted instance: [iointel.dev](https://www.iointel.dev).
 
 ## Documentation

@@ -160,7 +160,7 @@ export async function fetchOpenAiCompatibleModels(input: {
     Accept: "application/json",
   };
   if (isOpenRouterBaseUrl(input.baseUrl)) {
-    headers["HTTP-Referer"] = "https://t3.codes";
+    headers["HTTP-Referer"] = "https://www.iointel.dev";
     headers["X-OpenRouter-Title"] = "Coda";
   }
   const response = await fetch(openAiCompatibleModelsUrl(input.baseUrl), {

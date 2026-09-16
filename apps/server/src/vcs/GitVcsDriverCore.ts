@@ -78,7 +78,7 @@ const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
   SSH_ASKPASS_REQUIRE: "never",
 } satisfies NodeJS.ProcessEnv);
 const FALLBACK_GIT_IDENTITY_NAME = "Coda";
-const FALLBACK_GIT_IDENTITY_EMAIL = "t3code@users.noreply.github.com";
+const FALLBACK_GIT_IDENTITY_EMAIL = "coda@users.noreply.github.com";
 const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 const GIT_LIST_BRANCHES_DEFAULT_LIMIT = 100;
 const NON_REPOSITORY_STATUS_DETAILS = Object.freeze<GitVcsDriver.GitStatusDetails>({

@@ -1,7 +1,6 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import { RELEASES_URL } from "../lib/releases";
-import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../lib/site";
 ---
 
 <Layout title="Download — Coda" description="Download Coda for macOS, Windows, or Linux.">
@@ -66,13 +65,9 @@ import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../lib/site";
         <h2 class="platform-name">Mobile</h2>
       </div>
       <div class="download-cards">
-        <a class="download-card" href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">
-          <span class="card-arch">iPhone &amp; iPad</span>
-          <span class="card-format">App Store</span>
-        </a>
-        <a class="download-card" href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">
-          <span class="card-arch">Android</span>
-          <span class="card-format">Google Play</span>
+        <a class="download-card" href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
+          <span class="card-arch">iOS, Android, and desktop</span>
+          <span class="card-format">GitHub Releases</span>
         </a>
       </div>
     </section>

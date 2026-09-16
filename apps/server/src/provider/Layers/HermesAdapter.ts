@@ -576,7 +576,7 @@ export function makeHermesAdapter(hermesSettings: HermesSettings, options?: Herm
             childProcessSpawner,
             cwd,
             ...(resumeSessionId ? { resumeSessionId } : {}),
-            clientInfo: { name: "t3-code", version: "0.0.0" },
+            clientInfo: { name: "coda", version: "0.0.0" },
             ...(mcpSession
               ? {
                   mcpServers: [

@@ -1581,7 +1581,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.equal(yield* git(cwd, ["log", "-1", "--pretty=%an"]), "Coda");
         assert.equal(
           yield* git(cwd, ["log", "-1", "--pretty=%ae"]),
-          "t3code@users.noreply.github.com",
+          "coda@users.noreply.github.com",
         );
       }),
     );
