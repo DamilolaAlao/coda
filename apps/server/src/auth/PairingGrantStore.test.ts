@@ -1,6 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import * as ConfigProvider from "effect/ConfigProvider";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -29,12 +28,6 @@ const makeServerConfigLayer = (
   ).pipe(
     Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-bootstrap-test-" })),
   );
-
-const TEST_PASSCODE = "246801";
-
-const withPairingPasscode = ConfigProvider.layer(
-  ConfigProvider.fromEnv({ env: { T3CODE_PAIRING_CODE: TEST_PASSCODE } }),
-);
 
 const makePairingGrantStoreLayer = (
   overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
@@ -204,49 +197,12 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
     ),
   );
 
-  it.effect("exchanges a reusable 6-digit passcode for a session grant", () =>
+  it.effect("rejects 6-digit codes as unknown bootstrap credentials", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
-      const first = yield* bootstrapCredentials.consume(TEST_PASSCODE);
-      const second = yield* bootstrapCredentials.consume(TEST_PASSCODE);
-
-      expect(first.method).toBe("one-time-token");
-      expect(first.subject).toBe("passcode-bootstrap");
-      expect(first.scopes).toContain("access:write");
-      expect(second.subject).toBe("passcode-bootstrap");
-    }).pipe(Effect.provide(makePairingGrantStoreLayer()), Effect.provide(withPairingPasscode)),
-  );
-
-  it.effect("ignores 6-digit codes when T3CODE_PAIRING_CODE is unset", () =>
-    Effect.gen(function* () {
-      const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
-      const unknown = yield* Effect.flip(bootstrapCredentials.consume(TEST_PASSCODE));
+      const unknown = yield* Effect.flip(bootstrapCredentials.consume("246801"));
       expect(unknown._tag).toBe("UnknownBootstrapCredentialError");
     }).pipe(Effect.provide(makePairingGrantStoreLayer())),
-  );
-
-  it.effect("rate-limits incorrect passcode attempts without leaking the secret", () =>
-    Effect.gen(function* () {
-      const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
-
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        const mismatch = yield* Effect.flip(bootstrapCredentials.consume("000000"));
-        expect(mismatch._tag).toBe("UnknownBootstrapCredentialError");
-      }
-
-      const locked = yield* Effect.flip(bootstrapCredentials.consume("000000"));
-      expect(locked._tag).toBe("PasscodeLockedError");
-
-      const stillLocked = yield* Effect.flip(bootstrapCredentials.consume(TEST_PASSCODE));
-      expect(stillLocked._tag).toBe("PasscodeLockedError");
-
-      yield* TestClock.adjust(Duration.seconds(30));
-      const recovered = yield* bootstrapCredentials.consume(TEST_PASSCODE);
-      expect(recovered.subject).toBe("passcode-bootstrap");
-    }).pipe(
-      Effect.provide(Layer.merge(makePairingGrantStoreLayer(), TestClock.layer())),
-      Effect.provide(withPairingPasscode),
-    ),
   );
 
   it.effect("lists and revokes active pairing links", () =>

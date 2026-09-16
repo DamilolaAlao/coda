@@ -130,6 +130,8 @@ export const AuthEnvironmentBootstrapTokenType =
  *   once pairing is complete
  * - `sessionCookieName`: cookie name clients should expect when
  *   `browser-session-cookie` is in use
+ * - `sessionDataIsolation`: when true, occupancy follows the GitHub user after
+ *   OAuth (otherwise the pairing session)
  *
  * This descriptor is intentionally capability-oriented. It lets clients choose
  * the right UX without embedding server-specific auth logic or assuming a
@@ -140,11 +142,65 @@ export const ServerAuthDescriptor = Schema.Struct({
   bootstrapMethods: Schema.Array(ServerAuthBootstrapMethod),
   sessionMethods: Schema.Array(ServerAuthSessionMethod),
   sessionCookieName: TrimmedNonEmptyString,
+  sessionDataIsolation: Schema.optionalKey(Schema.Boolean),
 });
 export type ServerAuthDescriptor = typeof ServerAuthDescriptor.Type;
 
+export const ISOLATION_USER_SUBJECT_PREFIX = "user:" as const;
+export const ISOLATION_GITHUB_SUBJECT_PREFIX = "github:" as const;
+export const IsolationUserPattern = /^[a-z0-9][a-z0-9._-]{0,38}$/;
+
+export function isolationGitHubSubject(userId: number, login: string): string {
+  const handle = login
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "")
+    .slice(0, 39);
+  return `${ISOLATION_GITHUB_SUBJECT_PREFIX}${userId}:${handle.length > 0 ? handle : "user"}`;
+}
+
+export function isolationGitHubOwnerFromSubject(
+  subject: string | null | undefined,
+): string | undefined {
+  const match = /^(github:\d+)/.exec(subject ?? "");
+  return match?.[1];
+}
+
+export function isolationUserFromSubject(subject: string | null | undefined): string | undefined {
+  if (subject === undefined || subject === null) {
+    return undefined;
+  }
+  const github = /^github:\d+:(.+)$/.exec(subject);
+  if (github?.[1] && IsolationUserPattern.test(github[1])) {
+    return github[1];
+  }
+  if (!subject.startsWith(ISOLATION_USER_SUBJECT_PREFIX)) {
+    return undefined;
+  }
+  const user = subject.slice(ISOLATION_USER_SUBJECT_PREFIX.length);
+  return IsolationUserPattern.test(user) ? user : undefined;
+}
+
+export function isolationOwnerId(input: {
+  readonly sessionId: AuthSessionId;
+  readonly subject: string;
+}): AuthSessionId {
+  const githubOwner = isolationGitHubOwnerFromSubject(input.subject);
+  if (githubOwner !== undefined) {
+    return AuthSessionId.make(githubOwner);
+  }
+  if (
+    typeof input.subject === "string" &&
+    input.subject.startsWith(ISOLATION_USER_SUBJECT_PREFIX)
+  ) {
+    return AuthSessionId.make(input.subject);
+  }
+  return input.sessionId;
+}
+
 export const AuthBrowserSessionRequest = Schema.Struct({
   credential: TrimmedNonEmptyString,
+  user: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type AuthBrowserSessionRequest = typeof AuthBrowserSessionRequest.Type;
 
@@ -153,6 +209,7 @@ export const AuthBrowserSessionResult = Schema.Struct({
   scopes: AuthEnvironmentScopes,
   sessionMethod: ServerAuthSessionMethod,
   expiresAt: Schema.DateTimeUtc,
+  user: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type AuthBrowserSessionResult = typeof AuthBrowserSessionResult.Type;
 
@@ -181,6 +238,7 @@ export const AuthTokenExchangeRequest = Schema.Struct({
   client_label: Schema.optionalKey(TrimmedNonEmptyString),
   client_device_type: Schema.optionalKey(AuthClientMetadataDeviceType),
   client_os: Schema.optionalKey(TrimmedNonEmptyString),
+  user: Schema.optionalKey(TrimmedNonEmptyString),
 }).pipe(HttpApiSchema.asFormUrlEncoded());
 export type AuthTokenExchangeRequest = typeof AuthTokenExchangeRequest.Type;
 
@@ -340,5 +398,6 @@ export const AuthSessionState = Schema.Struct({
   scopes: Schema.optionalKey(AuthEnvironmentScopes),
   sessionMethod: Schema.optionalKey(ServerAuthSessionMethod),
   expiresAt: Schema.optionalKey(Schema.DateTimeUtc),
+  user: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type AuthSessionState = typeof AuthSessionState.Type;

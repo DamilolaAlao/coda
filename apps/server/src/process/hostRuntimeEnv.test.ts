@@ -5,7 +5,7 @@ import { isHostRuntimeEnvKey, scrubHostRuntimeEnv, childProcessEnvironment } fro
 describe("hostRuntimeEnv", () => {
   it("strips Coda, Vite, and Zerops host keys", () => {
     expect(isHostRuntimeEnvKey("T3CODE_HOME")).toBe(true);
-    expect(isHostRuntimeEnvKey("T3CODE_PAIRING_CODE")).toBe(true);
+    expect(isHostRuntimeEnvKey("T3CODE_PUBLIC_URL")).toBe(true);
     expect(isHostRuntimeEnvKey("ZEROPS_TOKEN")).toBe(true);
     expect(isHostRuntimeEnvKey("IMAGE_TAG")).toBe(true);
     expect(isHostRuntimeEnvKey("PATH")).toBe(false);
@@ -16,7 +16,7 @@ describe("hostRuntimeEnv", () => {
     const scrubbed = scrubHostRuntimeEnv({
       PATH: "/usr/bin",
       T3CODE_HOME: "/home/zerops/.t3",
-      T3CODE_PAIRING_CODE: "246801",
+      T3CODE_PUBLIC_URL: "https://example.test",
       ZEROPS_TOKEN: "secret",
       IMAGE_TAG: "abc",
       CODA_DEPLOYMENTS_HOME: "/home/zerops/deployments",
@@ -37,7 +37,7 @@ describe("hostRuntimeEnv", () => {
   it("builds a complete child env without re-merging process.env", () => {
     expect(
       childProcessEnvironment(
-        { PATH: "/custom/bin", T3CODE_PAIRING_CODE: "246801" },
+        { PATH: "/custom/bin", T3CODE_PUBLIC_URL: "https://example.test" },
         { PATH: "/usr/bin", T3CODE_HOME: "/secret", HOME: "/home/user" },
       ),
     ).toEqual({

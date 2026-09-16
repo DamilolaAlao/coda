@@ -394,6 +394,10 @@ export class SessionStore extends Context.Service<
     readonly revokeAllExcept: (
       sessionId: AuthSessionId,
     ) => Effect.Effect<number, SessionCredentialInternalError>;
+    readonly setSubject: (
+      sessionId: AuthSessionId,
+      subject: string,
+    ) => Effect.Effect<void, SessionCredentialInternalError>;
     readonly markConnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
     readonly markDisconnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
   }
@@ -709,7 +713,7 @@ export const make = Effect.gen(function* () {
         method: claims.method,
         client: toClientMetadata(row.value.client),
         expiresAt: expiresAt.value,
-        subject: claims.sub,
+        subject: row.value.subject,
         scopes: claims.scopes,
         ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
       } satisfies VerifiedSession;
@@ -898,6 +902,18 @@ export const make = Effect.gen(function* () {
     return revokedSessionIds.length;
   });
 
+  const setSubject: SessionStore["Service"]["setSubject"] = Effect.fn("SessionStore.setSubject")(
+    function* (sessionId, subject) {
+      yield* authSessions
+        .setSubject({ sessionId, subject })
+        .pipe(Effect.mapError((cause) => new SessionCredentialIssueError({ sessionId, cause })));
+      const session = yield* loadActiveSession(sessionId);
+      if (Option.isSome(session)) {
+        yield* emitUpsert(session.value);
+      }
+    },
+  );
+
   return SessionStore.of({
     cookieName,
     issue,
@@ -910,6 +926,7 @@ export const make = Effect.gen(function* () {
     },
     revoke,
     revokeAllExcept,
+    setSubject,
     markConnected,
     markDisconnected,
   });

@@ -83,11 +83,10 @@ describe("GitHub auth presentation", () => {
     expect(parseGitHubOAuthCompletionMessage("connected")).toBeNull();
   });
 
-  it("shows the GitHub auth layer after passcode until this client is signed in", () => {
+  it("shows the GitHub auth layer until this client is signed in", () => {
     expect(
       shouldShowHostedGitHubAuthGate({
         pairingRoute: false,
-        unlocked: true,
         githubConnected: false,
         managedOAuthAvailable: null,
       }),
@@ -95,7 +94,6 @@ describe("GitHub auth presentation", () => {
     expect(
       shouldShowHostedGitHubAuthGate({
         pairingRoute: false,
-        unlocked: true,
         githubConnected: null,
         managedOAuthAvailable: null,
       }),
@@ -103,7 +101,6 @@ describe("GitHub auth presentation", () => {
     expect(
       shouldShowHostedGitHubAuthGate({
         pairingRoute: false,
-        unlocked: true,
         githubConnected: true,
         managedOAuthAvailable: true,
       }),
@@ -111,7 +108,6 @@ describe("GitHub auth presentation", () => {
     expect(
       shouldShowHostedGitHubAuthGate({
         pairingRoute: false,
-        unlocked: true,
         githubConnected: false,
         managedOAuthAvailable: true,
       }),
@@ -119,7 +115,6 @@ describe("GitHub auth presentation", () => {
     expect(
       shouldShowHostedGitHubAuthGate({
         pairingRoute: false,
-        unlocked: true,
         githubConnected: false,
         managedOAuthAvailable: false,
       }),
@@ -127,27 +122,10 @@ describe("GitHub auth presentation", () => {
     expect(
       shouldShowHostedGitHubAuthGate({
         pairingRoute: true,
-        unlocked: true,
         githubConnected: false,
         managedOAuthAvailable: true,
       }),
     ).toBe(false);
-    expect(
-      shouldShowHostedGitHubAuthGate({
-        pairingRoute: false,
-        unlocked: false,
-        githubConnected: false,
-        managedOAuthAvailable: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowHostedGitHubAuthGate({
-        pairingRoute: false,
-        unlocked: false,
-        githubConnected: false,
-        managedOAuthAvailable: true,
-      }),
-    ).toBe(true);
   });
 
   it("only opens GitHub.com HTTPS authorize URLs", () => {

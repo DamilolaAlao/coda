@@ -158,6 +158,24 @@ it.effect("decodes project.create with createWorkspaceRootIfMissing enabled", ()
   }),
 );
 
+it.effect("decodes historical project.created payloads without an owner session", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeProjectCreatedPayload({
+      projectId: "project-1",
+      title: "Project Title",
+      workspaceRoot: "/tmp/workspace",
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+      scripts: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.ownerSessionId, undefined);
+  }),
+);
+
 it.effect("decodes historical project.created payloads with a default provider", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeProjectCreatedPayload({

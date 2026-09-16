@@ -7,6 +7,7 @@
  * @module ProjectionProjectRepository
  */
 import {
+  AuthSessionId,
   IsoDateTime,
   ModelSelection,
   ProjectId,
@@ -31,6 +32,7 @@ export const ProjectionProject = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
+  ownerSessionId: Schema.optional(Schema.NullOr(AuthSessionId)),
 });
 export type ProjectionProject = typeof ProjectionProject.Type;
 

@@ -82,6 +82,12 @@ export const SetAuthSessionLastConnectedAtInput = Schema.Struct({
 });
 export type SetAuthSessionLastConnectedAtInput = typeof SetAuthSessionLastConnectedAtInput.Type;
 
+export const SetAuthSessionSubjectInput = Schema.Struct({
+  sessionId: AuthSessionId,
+  subject: Schema.String,
+});
+export type SetAuthSessionSubjectInput = typeof SetAuthSessionSubjectInput.Type;
+
 export class AuthSessionRepository extends Context.Service<
   AuthSessionRepository,
   {
@@ -102,6 +108,9 @@ export class AuthSessionRepository extends Context.Service<
     ) => Effect.Effect<ReadonlyArray<AuthSessionId>, AuthSessionRepositoryError>;
     readonly setLastConnectedAt: (
       input: SetAuthSessionLastConnectedAtInput,
+    ) => Effect.Effect<void, AuthSessionRepositoryError>;
+    readonly setSubject: (
+      input: SetAuthSessionSubjectInput,
     ) => Effect.Effect<void, AuthSessionRepositoryError>;
   }
 >()("t3/persistence/AuthSessions/AuthSessionRepository") {}
@@ -281,6 +290,17 @@ export const make = Effect.gen(function* () {
       `,
   });
 
+  const setSubjectRow = SqlSchema.void({
+    Request: SetAuthSessionSubjectInput,
+    execute: ({ sessionId, subject }) =>
+      sql`
+        UPDATE auth_sessions
+        SET subject = ${subject}
+        WHERE session_id = ${sessionId}
+          AND revoked_at IS NULL
+      `,
+  });
+
   const revokeSessionRows = SqlSchema.findAll({
     Request: RevokeAuthSessionInput,
     Result: Schema.Struct({ sessionId: AuthSessionId }),
@@ -404,6 +424,17 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  const setSubject: AuthSessionRepository["Service"]["setSubject"] = (input) =>
+    setSubjectRow(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "AuthSessionRepository.setSubject:query",
+          "AuthSessionRepository.setSubject:encodeRequest",
+          { sessionId: input.sessionId },
+        ),
+      ),
+    );
+
   return {
     create,
     getById,
@@ -411,6 +442,7 @@ export const make = Effect.gen(function* () {
     revoke,
     revokeAllExcept,
     setLastConnectedAt,
+    setSubject,
   } satisfies AuthSessionRepository["Service"];
 });
 

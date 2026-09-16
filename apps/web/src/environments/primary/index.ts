@@ -20,6 +20,7 @@ export {
   isPrimaryEnvironmentRequestError,
   listServerClientSessions,
   listServerPairingLinks,
+  logoutServerSession,
   peekPairingTokenFromUrl,
   PrimaryEnvironmentPairingCredentialRejectedError,
   PrimaryEnvironmentRequestError,

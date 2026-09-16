@@ -45,6 +45,7 @@ import {
   TextSearchIcon,
   Unplug,
   Boxes,
+  LogOutIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -1609,6 +1610,18 @@ function OpenCommandPaletteDialog(props: {
     icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/settings" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:logout",
+    searchTerms: ["logout", "log out", "sign out", "unpair", "session"],
+    title: "Log out",
+    description: "End this device session. Your projects stay with your GitHub account.",
+    icon: <LogOutIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/logout" });
     },
   });
 

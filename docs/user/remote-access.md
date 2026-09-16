@@ -22,6 +22,11 @@ This publishes the server over Tailscale Serve HTTPS (configuring the mapping if
 
 If no server is running, `t3 pair` says so and points you at `npx t3 serve` or `npx t3 connect`.
 
+Sign in with GitHub. The same GitHub account on each of your devices shares that data. Log
+out of this device from Settings → Connections, the command palette, or `/logout`; your projects
+stay with that GitHub account. To share one environment across every pairing, start the server
+with `T3CODE_SESSION_DATA_ISOLATION=0`.
+
 ## Recommended Setup
 
 Use a trusted private network that meshes your devices together, such as a tailnet.

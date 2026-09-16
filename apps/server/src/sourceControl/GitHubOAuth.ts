@@ -1,6 +1,9 @@
 import {
   AuthSessionId,
+  AuthStandardClientScopes,
   GitHubOAuthError,
+  isolationGitHubSubject,
+  isolationOwnerId,
   type SourceControlDisconnectGitHubResult,
   type SourceControlStartGitHubOAuthResult,
 } from "@t3tools/contracts";
@@ -18,11 +21,16 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
+import * as Cookies from "effect/unstable/http/Cookies";
 
+import * as SessionStore from "../auth/SessionStore.ts";
+import { claimProjectionOccupancy } from "../auth/SessionDataIsolation.ts";
+import { isHttpsHttpRequest } from "../auth/utils.ts";
 import * as GitHubCredentialStore from "./GitHubCredentialStore.ts";
 import { GitHubTenant } from "./GitHubTenant.ts";
 
 export const GITHUB_OAUTH_CALLBACK_PATH = "/api/auth/github/callback";
+export const GITHUB_OAUTH_START_PATH = "/api/auth/github/start";
 export const GITHUB_OAUTH_MESSAGE_TYPE = "t3.github-oauth";
 const GITHUB_OAUTH_SCOPES = "repo read:org workflow gist";
 const PLACEHOLDER_ENV_VALUE = /^(?:__[A-Z0-9_]+__|your-github-.+)$/i;
@@ -35,6 +43,7 @@ const GitHubOAuthTokenResponse = Schema.Struct({
 });
 
 const GitHubUserResponse = Schema.Struct({
+  id: Schema.Number,
   login: Schema.String,
 });
 
@@ -270,6 +279,57 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(GitHubOAuth, make);
 
+const startRoute = HttpRouter.add(
+  "GET",
+  GITHUB_OAUTH_START_PATH,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const store = yield* GitHubCredentialStore.GitHubCredentialStore;
+    const oauth = oauthConfig();
+    const redirectUri = requestCallbackUrl(request);
+    if (!oauth || !redirectUri) {
+      return completionResponse(
+        "failed",
+        "GitHub OAuth is not configured on this Coda server.",
+      );
+    }
+
+    const sessions = yield* Effect.serviceOption(SessionStore.SessionStore);
+    let sessionId: AuthSessionId | undefined;
+    if (Option.isSome(sessions)) {
+      const cookieToken = request.cookies[sessions.value.cookieName];
+      if (cookieToken) {
+        const verified = yield* sessions.value.verify(cookieToken).pipe(Effect.option);
+        if (Option.isSome(verified)) {
+          sessionId = verified.value.sessionId;
+        }
+      }
+    }
+
+    const { state } = yield* store.createOAuthState({
+      ...(sessionId ? { sessionId } : {}),
+      redirectUri,
+    });
+    return HttpServerResponse.redirect(
+      buildGitHubAuthorizeUrl({
+        clientId: oauth.clientId,
+        redirectUri,
+        state,
+      }),
+      { status: 302 },
+    );
+  }).pipe(
+    Effect.catchCause(() =>
+      Effect.succeed(
+        completionResponse(
+          "failed",
+          "GitHub could not start sign-in. Return to Coda and try again.",
+        ),
+      ),
+    ),
+  ),
+);
+
 const callbackRoute = HttpRouter.add(
   "GET",
   GITHUB_OAUTH_CALLBACK_PATH,
@@ -278,6 +338,7 @@ const callbackRoute = HttpRouter.add(
     const url = Option.getOrNull(HttpServerRequest.toURL(request));
     const oauth = oauthConfig();
     const store = yield* GitHubCredentialStore.GitHubCredentialStore;
+    const sessions = yield* SessionStore.SessionStore;
     const fallbackRedirectUri = requestCallbackUrl(request);
 
     if (!url || !oauth) {
@@ -324,10 +385,31 @@ const callbackRoute = HttpRouter.add(
       Effect.flatMap(HttpClientResponse.schemaBodyJson(GitHubUserResponse)),
     );
 
+    const occupancy = isolationGitHubSubject(user.id, user.login);
+    let sessionId = consumed.value.sessionId;
+    let sessionToken: string | undefined;
+    let sessionExpiresAt: DateTime.DateTime | undefined;
+    if (sessionId === undefined) {
+      const issued = yield* sessions.issue({
+        method: "browser-session-cookie",
+        subject: occupancy,
+        scopes: AuthStandardClientScopes,
+      });
+      sessionId = issued.sessionId;
+      sessionToken = issued.token;
+      sessionExpiresAt = issued.expiresAt;
+    } else {
+      yield* sessions.setSubject(sessionId, occupancy);
+      yield* claimProjectionOccupancy(
+        sessionId,
+        isolationOwnerId({ sessionId, subject: occupancy }),
+      );
+    }
+
     const now = DateTime.formatIso(yield* DateTime.now);
     yield* store.set({
       version: 1,
-      sessionId: consumed.value.sessionId,
+      sessionId,
       token: token.access_token,
       tokenType: token.token_type ?? "bearer",
       scope: token.scope ?? "",
@@ -337,10 +419,23 @@ const callbackRoute = HttpRouter.add(
       updatedAt: now,
     });
 
-    return completionResponse(
+    let response = completionResponse(
       "connected",
       "This Coda client can now use your GitHub account. Return to the app.",
     );
+    if (sessionToken !== undefined && sessionExpiresAt !== undefined) {
+      const sessionCookies = yield* Effect.fromResult(
+        Cookies.set(Cookies.empty, sessions.cookieName, sessionToken, {
+          expires: new Date(sessionExpiresAt.epochMilliseconds),
+          httpOnly: true,
+          path: "/",
+          sameSite: "lax",
+          secure: isHttpsHttpRequest(request),
+        }),
+      );
+      response = HttpServerResponse.mergeCookies(response, sessionCookies);
+    }
+    return response;
   }).pipe(
     Effect.catchCause(() =>
       Effect.gen(function* () {
@@ -354,7 +449,7 @@ const callbackRoute = HttpRouter.add(
   ),
 );
 
-export const routeLayer = callbackRoute;
+export const routeLayer = Layer.mergeAll(startRoute, callbackRoute);
 
 export const internals = {
   oauthConfig,

@@ -1,7 +1,9 @@
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
+  EnvironmentAuthenticatedPrincipal,
   EnvironmentHttpApi,
+  isolationOwnerId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -16,6 +18,7 @@ import {
   failEnvironmentNotFound,
   requireEnvironmentScope,
 } from "../auth/http.ts";
+import { stampOwnerOnCreateCommand } from "../auth/SessionDataIsolation.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 
@@ -93,8 +96,12 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.dispatch")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
-          const normalizedCommand = yield* normalizeDispatchCommand(args.payload).pipe(
-            Effect.catch(() => failEnvironmentInvalidRequest("invalid_command")),
+          const session = yield* EnvironmentAuthenticatedPrincipal;
+          const normalizedCommand = stampOwnerOnCreateCommand(
+            yield* normalizeDispatchCommand(args.payload).pipe(
+              Effect.catch(() => failEnvironmentInvalidRequest("invalid_command")),
+            ),
+            isolationOwnerId(session),
           );
           return yield* orchestrationEngine
             .dispatch(normalizedCommand)

@@ -1,4 +1,5 @@
 import {
+  AuthSessionId,
   ChatAttachment,
   CheckpointRef,
   IsoDateTime,
@@ -59,6 +60,11 @@ import {
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
+  clientCanSeeProjectedOwner,
+  isolationOwnerSessionId,
+  restrictProjectedRowsForClient,
+} from "../../auth/SessionDataIsolation.ts";
+import {
   ProjectionSnapshotQuery,
   type ProjectionFullThreadDiffContext,
   type ProjectionSnapshotCounts,
@@ -118,6 +124,7 @@ const ProjectionCountsRowSchema = Schema.Struct({
 const ProjectionThreadSearchRequest = Schema.Struct({
   pattern: Schema.String,
   limit: Schema.Int,
+  ownerSessionId: Schema.NullOr(AuthSessionId),
 });
 const ProjectionThreadSearchRow = Schema.Struct({
   threadId: ThreadId,
@@ -174,6 +181,7 @@ const ProjectionThreadCheckpointContextThreadRowSchema = Schema.Struct({
   projectId: ProjectId,
   workspaceRoot: Schema.String,
   worktreePath: Schema.NullOr(Schema.String),
+  ownerSessionId: Schema.optional(Schema.NullOr(AuthSessionId)),
 });
 const FullThreadDiffContextLookupInput = Schema.Struct({
   threadId: ThreadId,
@@ -186,6 +194,7 @@ const ProjectionFullThreadDiffContextRowSchema = Schema.Struct({
   worktreePath: Schema.NullOr(Schema.String),
   latestCheckpointTurnCount: Schema.NullOr(NonNegativeInt),
   toCheckpointRef: Schema.NullOr(CheckpointRef),
+  ownerSessionId: Schema.optional(Schema.NullOr(AuthSessionId)),
 });
 
 const REQUIRED_SNAPSHOT_PROJECTORS = [
@@ -398,7 +407,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          owner_session_id AS "ownerSessionId"
         FROM projection_projects
         ORDER BY created_at ASC, project_id ASC
       `,
@@ -434,7 +444,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          owner_session_id AS "ownerSessionId"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
       `,
@@ -470,7 +481,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          owner_session_id AS "ownerSessionId"
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NULL
@@ -508,7 +520,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          owner_session_id AS "ownerSessionId"
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NOT NULL
@@ -760,20 +773,24 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   });
 
   const readProjectionCounts = SqlSchema.findOne({
-    Request: Schema.Void,
+    Request: Schema.Struct({
+      ownerSessionId: Schema.NullOr(AuthSessionId),
+    }),
     Result: ProjectionCountsRowSchema,
-    execute: () =>
+    execute: ({ ownerSessionId }) =>
       sql`
         SELECT
-          (SELECT COUNT(*) FROM projection_projects) AS "projectCount",
-          (SELECT COUNT(*) FROM projection_threads) AS "threadCount"
+          (SELECT COUNT(*) FROM projection_projects
+            WHERE ${ownerSessionId} IS NULL OR owner_session_id = ${ownerSessionId}) AS "projectCount",
+          (SELECT COUNT(*) FROM projection_threads
+            WHERE ${ownerSessionId} IS NULL OR owner_session_id = ${ownerSessionId}) AS "threadCount"
       `,
   });
 
   const searchActiveThreadRows = SqlSchema.findAll({
     Request: ProjectionThreadSearchRequest,
     Result: ProjectionThreadSearchRow,
-    execute: ({ pattern, limit }) =>
+    execute: ({ pattern, limit, ownerSessionId }) =>
       sql`
         WITH ranked AS (
           SELECT
@@ -821,6 +838,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               )
             )
             AND messages.text LIKE ${pattern} ESCAPE '!'
+            AND (
+              ${ownerSessionId} IS NULL
+              OR (
+                threads.owner_session_id = ${ownerSessionId}
+                AND projects.owner_session_id = ${ownerSessionId}
+              )
+            )
         )
         SELECT
           thread_id AS "threadId",
@@ -838,7 +862,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const getActiveProjectRowByWorkspaceRoot = SqlSchema.findOneOption({
+  const listActiveProjectRowsByWorkspaceRoot = SqlSchema.findAll({
     Request: WorkspaceRootLookupInput,
     Result: ProjectionProjectLookupRowSchema,
     execute: ({ workspaceRoot }) =>
@@ -853,12 +877,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          owner_session_id AS "ownerSessionId"
         FROM projection_projects
         WHERE workspace_root = ${workspaceRoot}
           AND deleted_at IS NULL
         ORDER BY created_at ASC, project_id ASC
-        LIMIT 1
       `,
   });
 
@@ -877,7 +901,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          owner_session_id AS "ownerSessionId"
         FROM projection_projects
         WHERE project_id = ${projectId}
           AND deleted_at IS NULL
@@ -910,7 +935,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           threads.thread_id AS "threadId",
           threads.project_id AS "projectId",
           projects.workspace_root AS "workspaceRoot",
-          threads.worktree_path AS "worktreePath"
+          threads.worktree_path AS "worktreePath",
+          threads.owner_session_id AS "ownerSessionId"
         FROM projection_threads AS threads
         INNER JOIN projection_projects AS projects
           ON projects.project_id = threads.project_id
@@ -950,7 +976,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          owner_session_id AS "ownerSessionId"
         FROM projection_threads
         WHERE thread_id = ${threadId}
           AND deleted_at IS NULL
@@ -1304,7 +1331,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             WHERE turns.thread_id = threads.thread_id
               AND turns.checkpoint_turn_count = ${checkpointTurnCount}
             LIMIT 1
-          ) AS "toCheckpointRef"
+          ) AS "toCheckpointRef",
+          threads.owner_session_id AS "ownerSessionId"
         FROM projection_threads AS threads
         INNER JOIN projection_projects AS projects
           ON projects.project_id = threads.project_id
@@ -1539,12 +1567,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 });
               }
 
+              const visible = yield* restrictProjectedRowsForClient(projectRows, threadRows);
               const repositoryIdentities = yield* resolveRepositoryIdentitiesForProjects(
-                projectRows,
+                visible.projectRows,
                 { includeDeleted: true },
               );
 
-              const projects: ReadonlyArray<OrchestrationProject> = projectRows.map((row) => ({
+              const projects: ReadonlyArray<OrchestrationProject> = visible.projectRows.map(
+                (row) => ({
                 id: row.projectId,
                 title: row.title,
                 workspaceRoot: row.workspaceRoot,
@@ -1558,7 +1588,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 deletedAt: row.deletedAt,
               }));
 
-              const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) => ({
+              const threads: ReadonlyArray<OrchestrationThread> = visible.threadRows.map(
+                (row) => ({
                 id: row.threadId,
                 projectId: row.projectId,
                 title: row.title,
@@ -1665,13 +1696,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       .pipe(
         Effect.flatMap(
           ([projectRows, threadRows, proposedPlanRows, sessionRows, latestTurnRows, stateRows]) =>
-            Effect.sync(() => {
+            Effect.gen(function* () {
+              const visible = yield* restrictProjectedRowsForClient(projectRows, threadRows);
               let updatedAt: string | null = null;
               const projects: OrchestrationProject[] = [];
               const threads: OrchestrationThread[] = [];
 
-              for (let index = 0; index < projectRows.length; index += 1) {
-                const row = projectRows[index];
+              for (let index = 0; index < visible.projectRows.length; index += 1) {
+                const row = visible.projectRows[index];
                 if (!row) {
                   continue;
                 }
@@ -1760,8 +1792,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 proposedPlansByThread.set(row.threadId, threadProposedPlans);
               }
 
-              for (let index = 0; index < threadRows.length; index += 1) {
-                const row = threadRows[index];
+              for (let index = 0; index < visible.threadRows.length; index += 1) {
+                const row = visible.threadRows[index];
                 if (!row) {
                   continue;
                 }
@@ -1859,11 +1891,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       .pipe(
         Effect.flatMap(([projectRows, threadRows, sessionRows, latestTurnRows, stateRows]) =>
           Effect.gen(function* () {
+            const visible = yield* restrictProjectedRowsForClient(projectRows, threadRows);
             let updatedAt: string | null = null;
-            for (const row of projectRows) {
+            for (const row of visible.projectRows) {
               updatedAt = maxIso(updatedAt, row.updatedAt);
             }
-            for (const row of threadRows) {
+            for (const row of visible.threadRows) {
               updatedAt = maxIso(updatedAt, row.updatedAt);
             }
             for (const row of sessionRows) {
@@ -1882,7 +1915,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               updatedAt = maxIso(updatedAt, row.updatedAt);
             }
 
-            const repositoryIdentities = yield* resolveRepositoryIdentitiesForProjects(projectRows);
+            const repositoryIdentities = yield* resolveRepositoryIdentitiesForProjects(
+              visible.projectRows,
+            );
             const latestTurnByThread = new Map(
               latestTurnRows.map((row) => [row.threadId, mapLatestTurn(row)] as const),
             );
@@ -1892,14 +1927,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
             const snapshot = {
               snapshotSequence: computeSnapshotSequence(stateRows),
-              projects: Arr.filterMap(projectRows, (row) =>
+              projects: Arr.filterMap(visible.projectRows, (row) =>
                 row.deletedAt === null
                   ? Result.succeed(
                       mapProjectShellRow(row, repositoryIdentities.get(row.projectId) ?? null),
                     )
                   : Result.failVoid,
               ),
-              threads: Arr.filterMap(threadRows, (row) =>
+              threads: Arr.filterMap(visible.threadRows, (row) =>
                 row.deletedAt === null
                   ? Result.succeed({
                       id: row.threadId,
@@ -2002,11 +2037,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       .pipe(
         Effect.flatMap(([projectRows, threadRows, sessionRows, latestTurnRows, stateRows]) =>
           Effect.gen(function* () {
+            const visible = yield* restrictProjectedRowsForClient(projectRows, threadRows);
             let updatedAt: string | null = null;
-            for (const row of projectRows) {
+            for (const row of visible.projectRows) {
               updatedAt = maxIso(updatedAt, row.updatedAt);
             }
-            for (const row of threadRows) {
+            for (const row of visible.threadRows) {
               updatedAt = maxIso(updatedAt, row.updatedAt);
             }
             for (const row of sessionRows) {
@@ -2025,9 +2061,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               updatedAt = maxIso(updatedAt, row.updatedAt);
             }
 
-            const activeProjectIds = new Set(threadRows.map((row) => row.projectId));
+            const activeProjectIds = new Set(visible.threadRows.map((row) => row.projectId));
             const repositoryIdentities = yield* resolveRepositoryIdentitiesForProjects(
-              projectRows.filter((row) => activeProjectIds.has(row.projectId)),
+              visible.projectRows.filter((row) => activeProjectIds.has(row.projectId)),
             );
             const latestTurnByThread = new Map(
               latestTurnRows.map((row) => [row.threadId, mapLatestTurn(row)] as const),
@@ -2038,14 +2074,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
             const snapshot = {
               snapshotSequence: computeSnapshotSequence(stateRows),
-              projects: Arr.filterMap(projectRows, (row) =>
+              projects: Arr.filterMap(visible.projectRows, (row) =>
                 row.deletedAt === null && activeProjectIds.has(row.projectId)
                   ? Result.succeed(
                       mapProjectShellRow(row, repositoryIdentities.get(row.projectId) ?? null),
                     )
                   : Result.failVoid,
               ),
-              threads: threadRows.map(
+              threads: visible.threadRows.map(
                 (row): OrchestrationThreadShell => ({
                   id: row.threadId,
                   projectId: row.projectId,
@@ -2113,28 +2149,31 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     );
 
   const getCounts: ProjectionSnapshotQueryShape["getCounts"] = () =>
-    readProjectionCounts(undefined).pipe(
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProjectionSnapshotQuery.getCounts:query",
-          "ProjectionSnapshotQuery.getCounts:decodeRow",
+    Effect.gen(function* () {
+      const ownerSessionId = yield* isolationOwnerSessionId;
+      const row = yield* readProjectionCounts({ ownerSessionId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getCounts:query",
+            "ProjectionSnapshotQuery.getCounts:decodeRow",
+          ),
         ),
-      ),
-      Effect.map(
-        (row): ProjectionSnapshotCounts => ({
-          projectCount: row.projectCount,
-          threadCount: row.threadCount,
-        }),
-      ),
-    );
+      );
+      return {
+        projectCount: row.projectCount,
+        threadCount: row.threadCount,
+      } satisfies ProjectionSnapshotCounts;
+    });
 
   const searchThreads: ProjectionSnapshotQueryShape["searchThreads"] = Effect.fn(
     "ProjectionSnapshotQuery.searchThreads",
   )(function* (input) {
     const escapedQuery = escapeLikePattern(input.query);
+    const ownerSessionId = yield* isolationOwnerSessionId;
     const rows = yield* searchActiveThreadRows({
       pattern: `%${escapedQuery}%`,
       limit: input.limit ?? 50,
+      ownerSessionId,
     }).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
@@ -2156,35 +2195,42 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const getActiveProjectByWorkspaceRoot: ProjectionSnapshotQueryShape["getActiveProjectByWorkspaceRoot"] =
     (workspaceRoot) =>
-      getActiveProjectRowByWorkspaceRoot({ workspaceRoot }).pipe(
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ProjectionSnapshotQuery.getActiveProjectByWorkspaceRoot:query",
-            "ProjectionSnapshotQuery.getActiveProjectByWorkspaceRoot:decodeRow",
+      Effect.gen(function* () {
+        const rows = yield* listActiveProjectRowsByWorkspaceRoot({ workspaceRoot }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getActiveProjectByWorkspaceRoot:query",
+              "ProjectionSnapshotQuery.getActiveProjectByWorkspaceRoot:decodeRow",
+            ),
           ),
-        ),
-        Effect.flatMap((option) =>
-          Option.isNone(option)
-            ? Effect.succeed(Option.none<OrchestrationProject>())
-            : repositoryIdentityResolver.resolve(option.value.workspaceRoot).pipe(
-                Effect.map((repositoryIdentity) =>
-                  Option.some({
-                    id: option.value.projectId,
-                    title: option.value.title,
-                    workspaceRoot: option.value.workspaceRoot,
-                    repositoryIdentity,
-                    defaultModelSelection: option.value.defaultModelSelection,
-                    defaultThreadEnvMode: option.value.defaultThreadEnvMode,
-                    faviconPath: option.value.faviconPath ?? null,
-                    scripts: option.value.scripts,
-                    createdAt: option.value.createdAt,
-                    updatedAt: option.value.updatedAt,
-                    deletedAt: option.value.deletedAt,
-                  } satisfies OrchestrationProject),
-                ),
-              ),
-        ),
-      );
+        );
+        let visibleRow = null as (typeof rows)[number] | null;
+        for (const row of rows) {
+          if (yield* clientCanSeeProjectedOwner(row.ownerSessionId)) {
+            visibleRow = row;
+            break;
+          }
+        }
+        if (visibleRow === null) {
+          return Option.none<OrchestrationProject>();
+        }
+        const repositoryIdentity = yield* repositoryIdentityResolver.resolve(
+          visibleRow.workspaceRoot,
+        );
+        return Option.some({
+          id: visibleRow.projectId,
+          title: visibleRow.title,
+          workspaceRoot: visibleRow.workspaceRoot,
+          repositoryIdentity,
+          defaultModelSelection: visibleRow.defaultModelSelection,
+          defaultThreadEnvMode: visibleRow.defaultThreadEnvMode,
+          faviconPath: visibleRow.faviconPath ?? null,
+          scripts: visibleRow.scripts,
+          createdAt: visibleRow.createdAt,
+          updatedAt: visibleRow.updatedAt,
+          deletedAt: visibleRow.deletedAt,
+        } satisfies OrchestrationProject);
+      });
 
   const getProjectShellById: ProjectionSnapshotQueryShape["getProjectShellById"] = (projectId) =>
     getActiveProjectRowById({ projectId }).pipe(
@@ -2197,27 +2243,45 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       Effect.flatMap((option) =>
         Option.isNone(option)
           ? Effect.succeed(Option.none<OrchestrationProjectShell>())
-          : repositoryIdentityResolver
-              .resolve(option.value.workspaceRoot)
-              .pipe(
-                Effect.map((repositoryIdentity) =>
-                  Option.some(mapProjectShellRow(option.value, repositoryIdentity)),
-                ),
-              ),
+          : Effect.gen(function* () {
+              if (!(yield* clientCanSeeProjectedOwner(option.value.ownerSessionId))) {
+                return Option.none<OrchestrationProjectShell>();
+              }
+              const repositoryIdentity = yield* repositoryIdentityResolver.resolve(
+                option.value.workspaceRoot,
+              );
+              return Option.some(mapProjectShellRow(option.value, repositoryIdentity));
+            }),
       ),
     );
 
   const getFirstActiveThreadIdByProjectId: ProjectionSnapshotQueryShape["getFirstActiveThreadIdByProjectId"] =
     (projectId) =>
-      getFirstActiveThreadIdByProject({ projectId }).pipe(
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ProjectionSnapshotQuery.getFirstActiveThreadIdByProjectId:query",
-            "ProjectionSnapshotQuery.getFirstActiveThreadIdByProjectId:decodeRow",
+      Effect.gen(function* () {
+        const project = yield* getActiveProjectRowById({ projectId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getFirstActiveThreadIdByProjectId:project:query",
+              "ProjectionSnapshotQuery.getFirstActiveThreadIdByProjectId:project:decodeRow",
+            ),
           ),
-        ),
-        Effect.map(Option.map((row) => row.threadId)),
-      );
+        );
+        if (
+          Option.isNone(project) ||
+          !(yield* clientCanSeeProjectedOwner(project.value.ownerSessionId))
+        ) {
+          return Option.none<ThreadId>();
+        }
+        return yield* getFirstActiveThreadIdByProject({ projectId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getFirstActiveThreadIdByProjectId:query",
+              "ProjectionSnapshotQuery.getFirstActiveThreadIdByProjectId:decodeRow",
+            ),
+          ),
+          Effect.map(Option.map((row) => row.threadId)),
+        );
+      });
 
   const getThreadCheckpointContext: ProjectionSnapshotQueryShape["getThreadCheckpointContext"] = (
     threadId,
@@ -2232,6 +2296,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       );
       if (Option.isNone(threadRow)) {
+        return Option.none<ProjectionThreadCheckpointContext>();
+      }
+      if (!(yield* clientCanSeeProjectedOwner(threadRow.value.ownerSessionId))) {
         return Option.none<ProjectionThreadCheckpointContext>();
       }
 
@@ -2281,6 +2348,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       if (Option.isNone(row)) {
         return Option.none<ProjectionFullThreadDiffContext>();
       }
+      if (!(yield* clientCanSeeProjectedOwner(row.value.ownerSessionId))) {
+        return Option.none<ProjectionFullThreadDiffContext>();
+      }
 
       return Option.some({
         threadId: row.value.threadId,
@@ -2322,6 +2392,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ]);
 
       if (Option.isNone(threadRow)) {
+        return Option.none<OrchestrationThreadShell>();
+      }
+      if (!(yield* clientCanSeeProjectedOwner(threadRow.value.ownerSessionId))) {
         return Option.none<OrchestrationThreadShell>();
       }
 
@@ -2443,6 +2516,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ]);
 
       if (Option.isNone(threadRow)) {
+        return Option.none<OrchestrationThread>();
+      }
+      if (!(yield* clientCanSeeProjectedOwner(threadRow.value.ownerSessionId))) {
         return Option.none<OrchestrationThread>();
       }
 

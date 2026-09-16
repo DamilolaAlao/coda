@@ -14,6 +14,7 @@ import {
   MessageId,
   NonNegativeInt,
   PositiveInt,
+  AuthSessionId,
   ProjectId,
   ProviderItemId,
   ThreadId,
@@ -630,6 +631,9 @@ export const ProjectCreateCommand = Schema.Struct({
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   createdAt: IsoDateTime,
+  // Clients must not set this. The server overwrites it from the
+  // authenticated session when session data isolation is enabled.
+  ownerSessionId: Schema.optional(Schema.NullOr(AuthSessionId)),
 });
 
 const ProjectMetaUpdateCommand = Schema.Struct({
@@ -666,6 +670,9 @@ const ThreadCreateCommand = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
+  // Clients must not set this. The server overwrites it from the
+  // authenticated session when session data isolation is enabled.
+  ownerSessionId: Schema.optional(Schema.NullOr(AuthSessionId)),
 });
 
 const ThreadDeleteCommand = Schema.Struct({
@@ -1091,6 +1098,11 @@ export const ProjectCreatedPayload = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  // Stamped by the authenticated occupancy (`github:<id>` after OAuth,
+  // otherwise the pairing session) at the WS/HTTP boundary when session data
+  // isolation is on (the default). Absent/null is hidden from client pairings;
+  // reactors with no ClientSessionScope still see it.
+  ownerSessionId: Schema.optional(Schema.NullOr(AuthSessionId)),
 });
 
 export const ProjectMetaUpdatedPayload = Schema.Struct({
@@ -1123,6 +1135,11 @@ export const ThreadCreatedPayload = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  // Stamped by the authenticated occupancy (`github:<id>` after OAuth,
+  // otherwise the pairing session) at the WS/HTTP boundary when session data
+  // isolation is on (the default). Absent/null is hidden from client pairings;
+  // reactors with no ClientSessionScope still see it.
+  ownerSessionId: Schema.optional(Schema.NullOr(AuthSessionId)),
 });
 
 export const ThreadDeletedPayload = Schema.Struct({

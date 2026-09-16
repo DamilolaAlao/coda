@@ -32,7 +32,7 @@ export type GitHubCredentialRecord = typeof CredentialRecord.Type;
 const OAuthStateRecord = Schema.Struct({
   version: Schema.Literal(1),
   state: Schema.String,
-  sessionId: AuthSessionId,
+  sessionId: Schema.optionalKey(AuthSessionId),
   redirectUri: Schema.String,
   createdAt: Schema.String,
   expiresAt: Schema.String,
@@ -84,7 +84,7 @@ export class GitHubCredentialStore extends Context.Service<
     readonly set: (record: GitHubCredentialRecord) => Effect.Effect<void>;
     readonly remove: (sessionId: AuthSessionId) => Effect.Effect<void>;
     readonly createOAuthState: (input: {
-      readonly sessionId: AuthSessionId;
+      readonly sessionId?: AuthSessionId;
       readonly redirectUri: string;
     }) => Effect.Effect<{ readonly state: string }>;
     readonly consumeOAuthState: (
@@ -158,7 +158,7 @@ export const make = Effect.gen(function* () {
       const record: GitHubOAuthStateRecord = {
         version: 1,
         state,
-        sessionId: input.sessionId,
+        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
         redirectUri: input.redirectUri,
         createdAt: DateTime.formatIso(now),
         expiresAt: DateTime.formatIso(DateTime.addDuration(now, OAUTH_STATE_TTL)),

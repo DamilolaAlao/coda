@@ -1,4 +1,5 @@
 import {
+  AuthSessionId,
   CheckpointRef,
   EventId,
   MessageId,
@@ -21,6 +22,7 @@ import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { encodeThreadDetailPageCursor } from "../threadDetailCursor.ts";
+import { ClientSessionScope } from "../../auth/SessionDataIsolation.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
@@ -2332,6 +2334,114 @@ projectionSnapshotLayer("ProjectionSnapshotQuery windowed thread detail", (it) =
         assert.deepEqual(messageIds(snapshot.value), ["pre-turn-msg"]);
         assert.equal(snapshot.value.page?.hasMore, false);
         assert.equal(snapshot.value.page?.beforeCursor, null);
+      }
+    }),
+  );
+
+  it.effect("hides unowned and other sessions' rows from a client pairing", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const previous = process.env.T3CODE_SESSION_DATA_ISOLATION;
+      delete process.env.T3CODE_SESSION_DATA_ISOLATION;
+      try {
+        yield* sql`DELETE FROM projection_projects`;
+        yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_thread_messages`;
+        yield* sql`DELETE FROM projection_state`;
+        yield* sql`
+          INSERT INTO projection_projects (
+            project_id, title, workspace_root, scripts_json,
+            created_at, updated_at, deleted_at, owner_session_id
+          )
+          VALUES
+            ('project-mine', 'Mine', '/tmp/mine', '[]',
+              '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z', NULL, 'session-a'),
+            ('project-theirs', 'Theirs', '/tmp/theirs', '[]',
+              '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z', NULL, 'session-b'),
+            ('project-unowned', 'Unowned', '/tmp/unowned', '[]',
+              '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z', NULL, NULL)
+        `;
+        yield* sql`
+          INSERT INTO projection_threads (
+            thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode,
+            pending_approval_count, pending_user_input_count, has_actionable_proposed_plan,
+            created_at, updated_at, deleted_at, owner_session_id
+          )
+          VALUES
+            ('thread-mine', 'project-mine', 'Mine',
+              '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+              0, 0, 0, '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z', NULL, 'session-a'),
+            ('thread-theirs', 'project-theirs', 'Theirs',
+              '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+              0, 0, 0, '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z', NULL, 'session-b'),
+            ('thread-unowned', 'project-unowned', 'Unowned',
+              '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+              0, 0, 0, '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z', NULL, NULL)
+        `;
+        yield* sql`
+          INSERT INTO projection_thread_messages (
+            message_id, thread_id, turn_id, role, text, is_streaming, created_at, updated_at
+          )
+          VALUES
+            ('message-mine', 'thread-mine', NULL, 'user', 'alpha needle', 0,
+              '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z'),
+            ('message-theirs', 'thread-theirs', NULL, 'user', 'alpha needle', 0,
+              '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z'),
+            ('message-unowned', 'thread-unowned', NULL, 'user', 'alpha needle', 0,
+              '2026-04-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z')
+        `;
+        for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
+          yield* sql`
+            INSERT INTO projection_state (projector, last_applied_sequence, updated_at)
+            VALUES (${projector}, 1, '2026-04-01T00:00:00.000Z')
+          `;
+        }
+
+        const asSessionA = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+          effect.pipe(
+            Effect.provideService(ClientSessionScope, {
+              sessionId: AuthSessionId.make("session-a"),
+              ownerId: AuthSessionId.make("session-a"),
+            }),
+          );
+
+        const snapshot = yield* asSessionA(snapshotQuery.getShellSnapshot());
+        assert.deepEqual(
+          snapshot.projects.map((project) => project.id),
+          ["project-mine"],
+        );
+        assert.deepEqual(
+          snapshot.threads.map((thread) => thread.id),
+          ["thread-mine"],
+        );
+
+        const counts = yield* asSessionA(snapshotQuery.getCounts());
+        assert.deepEqual(counts, { projectCount: 1, threadCount: 1 });
+
+        const globalCounts = yield* snapshotQuery.getCounts();
+        assert.deepEqual(globalCounts, { projectCount: 3, threadCount: 3 });
+
+        const search = yield* asSessionA(snapshotQuery.searchThreads({ query: "alpha needle" }));
+        assert.deepEqual(
+          search.matches.map((match) => match.threadId),
+          ["thread-mine"],
+        );
+
+        const firstMine = yield* asSessionA(
+          snapshotQuery.getFirstActiveThreadIdByProjectId(asProjectId("project-mine")),
+        );
+        assert.equal(firstMine._tag, "Some");
+        const firstTheirs = yield* asSessionA(
+          snapshotQuery.getFirstActiveThreadIdByProjectId(asProjectId("project-theirs")),
+        );
+        assert.equal(firstTheirs._tag, "None");
+      } finally {
+        if (previous === undefined) {
+          delete process.env.T3CODE_SESSION_DATA_ISOLATION;
+        } else {
+          process.env.T3CODE_SESSION_DATA_ISOLATION = previous;
+        }
       }
     }),
   );

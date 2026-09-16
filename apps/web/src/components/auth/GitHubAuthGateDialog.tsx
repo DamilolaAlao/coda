@@ -30,7 +30,7 @@ export function GitHubAuthGateDialog({
         : "Preparing environment…";
   const description = checking
     ? "Checking whether this browser already has a GitHub account connected."
-    : "Passcode accepted. Continue with GitHub for this browser. Each paired client keeps its own GitHub account.";
+    : "Sign in with GitHub to load your projects. The same GitHub account on every device shares that data.";
 
   return (
     <div className="fixed inset-0 z-50 flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">

@@ -63,6 +63,7 @@ export const EnvironmentRequestInvalidReason = Schema.Literals([
   "scope_not_granted",
   "invalid_command",
   "invalid_http_target",
+  "invalid_user",
 ]);
 export type EnvironmentRequestInvalidReason = typeof EnvironmentRequestInvalidReason.Type;
 
@@ -298,6 +299,7 @@ export class EnvironmentCloudEndpointUnavailableError extends Schema.TaggedError
 }
 const EnvironmentSessionCreationErrors = [
   EnvironmentAuthInvalidError,
+  EnvironmentRequestInvalidError,
   EnvironmentInternalError,
 ] as const;
 const EnvironmentTokenExchangeErrors = [
@@ -403,6 +405,11 @@ export const AuthOtherClientSessionsRevokeResult = Schema.Struct({
 });
 export type AuthOtherClientSessionsRevokeResult = typeof AuthOtherClientSessionsRevokeResult.Type;
 
+export const AuthLogoutResult = Schema.Struct({
+  revoked: Schema.Boolean,
+});
+export type AuthLogoutResult = typeof AuthLogoutResult.Type;
+
 export class EnvironmentMetadataHttpApi extends HttpApiGroup.make("metadata").add(
   HttpApiEndpoint.get("descriptor", "/.well-known/t3/environment", {
     success: ExecutionEnvironmentDescriptor,
@@ -481,6 +488,13 @@ export class EnvironmentAuthHttpApi extends HttpApiGroup.make("auth")
     HttpApiEndpoint.post("revokeOtherClients", "/api/auth/clients/revoke-others", {
       headers: OptionalBearerHeaders,
       success: AuthOtherClientSessionsRevokeResult,
+      error: EnvironmentScopedOperationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("logout", "/api/auth/logout", {
+      headers: OptionalBearerHeaders,
+      success: AuthLogoutResult,
       error: EnvironmentScopedOperationErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
   ) {}

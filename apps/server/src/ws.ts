@@ -15,7 +15,7 @@ import {
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
-  type BackgroundAppError,
+  BackgroundAppError,
   type BackgroundAppEvent,
   type BackgroundAppLogEvent,
   CommandId,
@@ -23,6 +23,8 @@ import {
   EventId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  GitCommandError,
+  GitManagerError,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
@@ -49,6 +51,7 @@ import {
   type ServerSelfUpdateProgressEvent,
   type FilesystemBrowseFailure,
   FilesystemBrowseError,
+  VcsRepositoryDetectionError,
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
   RpcClientId,
@@ -58,6 +61,7 @@ import {
   type TerminalError,
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
+  TerminalSessionLookupError,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -121,6 +125,22 @@ import * as GitHubCli from "./sourceControl/GitHubCli.ts";
 import * as GitHubCredentialStore from "./sourceControl/GitHubCredentialStore.ts";
 import * as GitHubOAuth from "./sourceControl/GitHubOAuth.ts";
 import { GitHubTenant } from "./sourceControl/GitHubTenant.ts";
+import {
+  ClientSessionScope,
+  clientSessionOccupancy,
+  isSessionDataIsolationEnabled,
+  SessionVisibilityGate,
+  stampOwnerOnCreateCommand,
+} from "./auth/SessionDataIsolation.ts";
+import {
+  isolateFilesystemBrowseResult,
+  requireVisibleThread,
+  threadIsVisibleToClient,
+  withOwnedWorkspacePath,
+  withOwnedWorkspacePathStream,
+  withVisibleThread,
+  withVisibleThreadStream,
+} from "./auth/SessionWorkspaceAccess.ts";
 import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
@@ -363,6 +383,7 @@ const makeWsRpcLayer = (
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
+      const clientSessionScope = clientSessionOccupancy(currentSession);
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
@@ -456,6 +477,7 @@ const makeWsRpcLayer = (
           method,
           authorizeEffect(requiredScopeForRpcMethod(method), effect).pipe(
             Effect.provideService(GitHubTenant, { sessionId: currentSessionId }),
+            Effect.provideService(ClientSessionScope, clientSessionScope),
           ),
           traceAttributes,
         );
@@ -468,6 +490,7 @@ const makeWsRpcLayer = (
           method,
           authorizeStream(requiredScopeForRpcMethod(method), stream).pipe(
             Stream.provideService(GitHubTenant, { sessionId: currentSessionId }),
+            Stream.provideService(ClientSessionScope, clientSessionScope),
           ),
           traceAttributes,
         );
@@ -484,8 +507,12 @@ const makeWsRpcLayer = (
           method,
           authorizeEffect(requiredScopeForRpcMethod(method), effect).pipe(
             Effect.provideService(GitHubTenant, { sessionId: currentSessionId }),
+            Effect.provideService(ClientSessionScope, clientSessionScope),
             Effect.map((stream) =>
-              stream.pipe(Stream.provideService(GitHubTenant, { sessionId: currentSessionId })),
+              stream.pipe(
+                Stream.provideService(GitHubTenant, { sessionId: currentSessionId }),
+                Stream.provideService(ClientSessionScope, clientSessionScope),
+              ),
             ),
           ),
           traceAttributes,
@@ -699,15 +726,26 @@ const makeWsRpcLayer = (
       // and drops any `sequence <= snapshotSequence` — never skips a coalesced
       // item. The refetch runs with bounded concurrency (order-preserving).
       const SHELL_REFETCH_CONCURRENCY = 8;
+      const isolationGate = new SessionVisibilityGate(clientSessionScope.ownerId);
+      const seedIsolationGateFromShell = (snapshot: {
+        readonly projects: ReadonlyArray<{ readonly id: string }>;
+        readonly threads: ReadonlyArray<{ readonly id: string }>;
+      }) => {
+        isolationGate.seed({
+          projectIds: snapshot.projects.map((project) => project.id),
+          threadIds: snapshot.threads.map((thread) => thread.id),
+        });
+      };
       const coalesceShellEvents = (
         events: ReadonlyArray<OrchestrationEvent>,
       ): Effect.Effect<ReadonlyArray<OrchestrationShellStreamEvent>, never, never> =>
         Effect.gen(function* () {
-          if (events.length === 0) {
+          const visibleEvents = events.filter((event) => isolationGate.admit(event));
+          if (visibleEvents.length === 0) {
             return [];
           }
           const latestByAggregate = new Map<string, OrchestrationEvent>();
-          for (const event of events) {
+          for (const event of visibleEvents) {
             latestByAggregate.set(`${event.aggregateKind}:${event.aggregateId}`, event);
           }
           const survivors = Array.from(latestByAggregate.values()).sort(
@@ -914,19 +952,24 @@ const makeWsRpcLayer = (
 
           const bootstrapProgram = Effect.gen(function* () {
             if (bootstrap?.createThread) {
-              yield* orchestrationEngine.dispatch({
-                type: "thread.create",
-                commandId: yield* serverCommandId("bootstrap-thread-create"),
-                threadId: command.threadId,
-                projectId: bootstrap.createThread.projectId,
-                title: bootstrap.createThread.title,
-                modelSelection: bootstrap.createThread.modelSelection,
-                runtimeMode: bootstrap.createThread.runtimeMode,
-                interactionMode: bootstrap.createThread.interactionMode,
-                branch: bootstrap.createThread.branch,
-                worktreePath: bootstrap.createThread.worktreePath,
-                createdAt: bootstrap.createThread.createdAt,
-              });
+              yield* orchestrationEngine.dispatch(
+                stampOwnerOnCreateCommand(
+                  {
+                    type: "thread.create",
+                    commandId: yield* serverCommandId("bootstrap-thread-create"),
+                    threadId: command.threadId,
+                    projectId: bootstrap.createThread.projectId,
+                    title: bootstrap.createThread.title,
+                    modelSelection: bootstrap.createThread.modelSelection,
+                    runtimeMode: bootstrap.createThread.runtimeMode,
+                    interactionMode: bootstrap.createThread.interactionMode,
+                    branch: bootstrap.createThread.branch,
+                    worktreePath: bootstrap.createThread.worktreePath,
+                    createdAt: bootstrap.createThread.createdAt,
+                  },
+                  clientSessionScope.ownerId,
+                ),
+              );
               createdThread = true;
             }
 
@@ -1057,12 +1100,41 @@ const makeWsRpcLayer = (
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
+      const gitManagerNotFound = (operation: string, cwd: string) =>
+        new GitManagerError({ operation, cwd, detail: "Workspace not found" });
+      const gitCommandNotFound = (operation: string, cwd: string) =>
+        new GitCommandError({
+          operation,
+          command: "git",
+          cwd,
+          detail: "Workspace not found",
+        });
+      const vcsNotFound = (operation: string, cwd: string) =>
+        new VcsRepositoryDetectionError({
+          operation,
+          cwd,
+          detail: "Workspace not found",
+        });
+      const terminalNotFound = (threadId: string, terminalId = "term-1") =>
+        new TerminalSessionLookupError({ threadId, terminalId });
+      const provideClientVisibility = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        effect.pipe(
+          Effect.provideService(ClientSessionScope, clientSessionScope),
+          Effect.provideService(
+            ProjectionSnapshotQuery.ProjectionSnapshotQuery,
+            projectionSnapshotQuery,
+          ),
+        );
+
       return WsRpcGroup.of({
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
             Effect.gen(function* () {
-              const normalizedCommand = yield* normalizeDispatchCommand(command);
+              const normalizedCommand = stampOwnerOnCreateCommand(
+                yield* normalizeDispatchCommand(command),
+                clientSessionScope.ownerId,
+              );
               // Archive and settle both mean "done with this thread", so a
               // live provider session must not keep running background work
               // (PR monitors, dev servers, subagent fleets) after either
@@ -1275,10 +1347,14 @@ const makeWsRpcLayer = (
                 // no-afterSequence path does.
                 if (replayGap < 0 || replayGap > SHELL_RESUME_MAX_GAP) {
                   const snapshot = yield* loadSnapshot;
+                  seedIsolationGateFromShell(snapshot);
                   return Stream.concat(
                     Stream.make({ kind: "snapshot" as const, snapshot }),
                     synchronizedThenLive,
                   );
+                }
+                if (isSessionDataIsolationEnabled()) {
+                  seedIsolationGateFromShell(yield* loadSnapshot);
                 }
                 const catchUpStream = coalesceShellStream(
                   // Replay only through the head captured above. Newer events
@@ -1299,6 +1375,7 @@ const makeWsRpcLayer = (
               }
 
               const snapshot = yield* loadSnapshot;
+              seedIsolationGateFromShell(snapshot);
               return Stream.concat(
                 Stream.make({
                   kind: "snapshot" as const,
@@ -1330,6 +1407,25 @@ const makeWsRpcLayer = (
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeThread,
             Effect.gen(function* () {
+              if (isSessionDataIsolationEnabled()) {
+                const visibleThread = yield* projectionSnapshotQuery
+                  .getThreadCheckpointContext(input.threadId)
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new OrchestrationGetSnapshotError({
+                          message: `Failed to load thread ${input.threadId}`,
+                          cause,
+                        }),
+                    ),
+                  );
+                if (Option.isNone(visibleThread)) {
+                  return yield* new OrchestrationGetSnapshotError({
+                    message: `Thread ${input.threadId} was not found`,
+                    cause: input.threadId,
+                  });
+                }
+              }
               const isThisThreadDetailEvent = (event: OrchestrationEvent) =>
                 event.aggregateKind === "thread" &&
                 event.aggregateId === input.threadId &&
@@ -1784,16 +1880,26 @@ const makeWsRpcLayer = (
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchEntries,
-            workspaceEntries.search(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectSearchEntriesError({
-                    cwd: input.cwd,
-                    queryLength: input.query.length,
-                    limit: input.limit,
-                    ...projectEntriesFailureContext(cause),
-                    cause,
-                  }),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) =>
+                new ProjectSearchEntriesError({
+                  cwd,
+                  queryLength: input.query.length,
+                  limit: input.limit,
+                  failure: "workspace_root_not_found",
+                }),
+              workspaceEntries.search(input).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProjectSearchEntriesError({
+                      cwd: input.cwd,
+                      queryLength: input.query.length,
+                      limit: input.limit,
+                      ...projectEntriesFailureContext(cause),
+                      cause,
+                    }),
+                ),
               ),
             ),
             { "rpc.aggregate": "workspace" },
@@ -1801,16 +1907,26 @@ const makeWsRpcLayer = (
         [WS_METHODS.projectsSearchContents]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchContents,
-            workspaceEntries.searchContents(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectSearchContentsError({
-                    cwd: input.cwd,
-                    queryLength: input.query.length,
-                    limit: input.limit,
-                    ...projectEntriesFailureContext(cause),
-                    cause,
-                  }),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) =>
+                new ProjectSearchContentsError({
+                  cwd,
+                  queryLength: input.query.length,
+                  limit: input.limit,
+                  failure: "workspace_root_not_found",
+                }),
+              workspaceEntries.searchContents(input).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProjectSearchContentsError({
+                      cwd: input.cwd,
+                      queryLength: input.query.length,
+                      limit: input.limit,
+                      ...projectEntriesFailureContext(cause),
+                      cause,
+                    }),
+                ),
               ),
             ),
             { "rpc.aggregate": "workspace" },
@@ -1818,14 +1934,22 @@ const makeWsRpcLayer = (
         [WS_METHODS.projectsListEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsListEntries,
-            workspaceEntries.list(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectListEntriesError({
-                    ...input,
-                    ...projectEntriesFailureContext(cause),
-                    cause,
-                  }),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) =>
+                new ProjectListEntriesError({
+                  cwd,
+                  failure: "workspace_root_not_found",
+                }),
+              workspaceEntries.list(input).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProjectListEntriesError({
+                      ...input,
+                      ...projectEntriesFailureContext(cause),
+                      cause,
+                    }),
+                ),
               ),
             ),
             { "rpc.aggregate": "workspace" },
@@ -1833,14 +1957,23 @@ const makeWsRpcLayer = (
         [WS_METHODS.projectsReadFile]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsReadFile,
-            workspaceFileSystem.readFile(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectReadFileError({
-                    ...input,
-                    ...projectFileFailureContext(cause),
-                    cause,
-                  }),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) =>
+                new ProjectReadFileError({
+                  cwd,
+                  relativePath: input.relativePath,
+                  failure: "workspace_path_outside_root",
+                }),
+              workspaceFileSystem.readFile(input).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProjectReadFileError({
+                      ...input,
+                      ...projectFileFailureContext(cause),
+                      cause,
+                    }),
+                ),
               ),
             ),
             { "rpc.aggregate": "workspace" },
@@ -1848,15 +1981,24 @@ const makeWsRpcLayer = (
         [WS_METHODS.projectsWriteFile]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsWriteFile,
-            workspaceFileSystem.writeFile(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectWriteFileError({
-                    cwd: input.cwd,
-                    relativePath: input.relativePath,
-                    ...projectFileFailureContext(cause),
-                    cause,
-                  }),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) =>
+                new ProjectWriteFileError({
+                  cwd,
+                  relativePath: input.relativePath,
+                  failure: "workspace_path_outside_root",
+                }),
+              workspaceFileSystem.writeFile(input).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProjectWriteFileError({
+                      cwd: input.cwd,
+                      relativePath: input.relativePath,
+                      ...projectFileFailureContext(cause),
+                      cause,
+                    }),
+                ),
               ),
             ),
             { "rpc.aggregate": "workspace" },
@@ -1876,6 +2018,18 @@ const makeWsRpcLayer = (
                     ...filesystemBrowseFailureContext(cause),
                     cause,
                   }),
+              ),
+              Effect.flatMap((result) =>
+                isolateFilesystemBrowseResult(result).pipe(
+                  Effect.mapError(
+                    (denied) =>
+                      new FilesystemBrowseError({
+                        ...input,
+                        failure: "read_directory_failed",
+                        parentPath: denied.path,
+                      }),
+                  ),
+                ),
               ),
             ),
             { "rpc.aggregate": "workspace" },
@@ -1953,9 +2107,13 @@ const makeWsRpcLayer = (
         [WS_METHODS.subscribeVcsStatus]: (input) =>
           observeRpcStream(
             WS_METHODS.subscribeVcsStatus,
-            vcsStatusBroadcaster.streamStatus(input, {
-              automaticRemoteRefreshInterval: automaticGitFetchInterval,
-            }),
+            withOwnedWorkspacePathStream(
+              input.cwd,
+              (cwd) => gitManagerNotFound("subscribeVcsStatus", cwd),
+              vcsStatusBroadcaster.streamStatus(input, {
+                automaticRemoteRefreshInterval: automaticGitFetchInterval,
+              }),
+            ),
             {
               "rpc.aggregate": "vcs",
             },
@@ -1963,7 +2121,11 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsRefreshStatus]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRefreshStatus,
-            vcsStatusBroadcaster.refreshStatus(input.cwd),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitManagerNotFound("vcsRefreshStatus", cwd),
+              vcsStatusBroadcaster.refreshStatus(input.cwd),
+            ),
             {
               "rpc.aggregate": "vcs",
             },
@@ -1971,42 +2133,57 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsPull]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsPull,
-            gitWorkflow.pullCurrentBranch(input.cwd).pipe(
-              Effect.matchCauseEffect({
-                onFailure: (cause) => Effect.failCause(cause),
-                onSuccess: (result) =>
-                  refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true }), Effect.as(result)),
-              }),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitCommandNotFound("vcsPull", cwd),
+              gitWorkflow.pullCurrentBranch(input.cwd).pipe(
+                Effect.matchCauseEffect({
+                  onFailure: (cause) => Effect.failCause(cause),
+                  onSuccess: (result) =>
+                    refreshGitStatus(input.cwd).pipe(
+                      Effect.ignore({ log: true }),
+                      Effect.as(result),
+                    ),
+                }),
+              ),
             ),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.gitRunStackedAction]: (input) =>
           observeRpcStream(
             WS_METHODS.gitRunStackedAction,
-            Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
-              gitWorkflow
-                .runStackedAction(input, {
-                  actionId: input.actionId,
-                  progressReporter: {
-                    publish: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
-                  },
-                })
-                .pipe(
-                  Effect.matchCauseEffect({
-                    onFailure: (cause) => Queue.failCause(queue, cause),
-                    onSuccess: () =>
-                      refreshGitStatus(input.cwd).pipe(
-                        Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
-                      ),
-                  }),
-                ),
+            withOwnedWorkspacePathStream(
+              input.cwd,
+              (cwd) => gitManagerNotFound("gitRunStackedAction", cwd),
+              Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
+                gitWorkflow
+                  .runStackedAction(input, {
+                    actionId: input.actionId,
+                    progressReporter: {
+                      publish: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
+                    },
+                  })
+                  .pipe(
+                    Effect.matchCauseEffect({
+                      onFailure: (cause) => Queue.failCause(queue, cause),
+                      onSuccess: () =>
+                        refreshGitStatus(input.cwd).pipe(
+                          Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
+                        ),
+                    }),
+                  ),
+              ),
             ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.gitResolvePullRequest]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitResolvePullRequest,
-            gitWorkflow.resolvePullRequest(input),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitManagerNotFound("gitResolvePullRequest", cwd),
+              gitWorkflow.resolvePullRequest(input),
+            ),
             {
               "rpc.aggregate": "git",
             },
@@ -2014,98 +2191,198 @@ const makeWsRpcLayer = (
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,
-            gitWorkflow
-              .preparePullRequestThread(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitManagerNotFound("gitPreparePullRequestThread", cwd),
+              gitWorkflow
+                .preparePullRequestThread(input)
+                .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            ),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.vcsListRefs]: (input) =>
-          observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
-            "rpc.aggregate": "vcs",
-          }),
+          observeRpcEffect(
+            WS_METHODS.vcsListRefs,
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitCommandNotFound("vcsListRefs", cwd),
+              gitWorkflow.listRefs(input),
+            ),
+            {
+              "rpc.aggregate": "vcs",
+            },
+          ),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
-            gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitCommandNotFound("vcsCreateWorktree", cwd),
+              gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
-            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitCommandNotFound("vcsRemoveWorktree", cwd),
+              gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateRef,
-            gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitCommandNotFound("vcsCreateRef", cwd),
+              gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsSwitchRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsSwitchRef,
-            gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitCommandNotFound("vcsSwitchRef", cwd),
+              gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsInit]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsInit,
-            vcsProvisioning
-              .initRepository(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => vcsNotFound("vcsInit", cwd),
+              vcsProvisioning
+                .initRepository(input)
+                .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.reviewGetDiffPreview]: (input) =>
-          observeRpcEffect(WS_METHODS.reviewGetDiffPreview, review.getDiffPreview(input), {
-            "rpc.aggregate": "review",
-          }),
+          observeRpcEffect(
+            WS_METHODS.reviewGetDiffPreview,
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitCommandNotFound("reviewGetDiffPreview", cwd),
+              review.getDiffPreview(input),
+            ),
+            { "rpc.aggregate": "review" },
+          ),
         [WS_METHODS.reviewGetDiffFileContents]: (input) =>
           observeRpcEffect(
             WS_METHODS.reviewGetDiffFileContents,
-            review.getDiffFileContents(input),
+            withOwnedWorkspacePath(
+              input.cwd,
+              (cwd) => gitCommandNotFound("reviewGetDiffFileContents", cwd),
+              review.getDiffFileContents(input),
+            ),
             { "rpc.aggregate": "review" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalOpen,
+            withVisibleThread(
+              input.threadId,
+              (threadId) => terminalNotFound(threadId, input.terminalId),
+              withOwnedWorkspacePath(
+                input.cwd,
+                (cwd) =>
+                  new TerminalSessionLookupError({
+                    threadId: input.threadId,
+                    terminalId: input.terminalId,
+                  }),
+                terminalManager.open(input),
+              ),
+            ),
+            { "rpc.aggregate": "terminal" },
+          ),
         [WS_METHODS.terminalAttach]: (input) =>
           observeRpcStream(
             WS_METHODS.terminalAttach,
-            Stream.callback<TerminalAttachStreamEvent, TerminalError>((queue) =>
-              Effect.acquireRelease(
-                terminalManager.attachStream(input, (event) => Queue.offer(queue, event)),
-                (unsubscribe) => Effect.sync(unsubscribe),
+            withVisibleThreadStream(
+              input.threadId,
+              (threadId) => terminalNotFound(threadId, input.terminalId),
+              Stream.callback<TerminalAttachStreamEvent, TerminalError>((queue) =>
+                Effect.acquireRelease(
+                  terminalManager.attachStream(input, (event) => Queue.offer(queue, event)),
+                  (unsubscribe) => Effect.sync(unsubscribe),
+                ),
               ),
             ),
             { "rpc.aggregate": "terminal" },
           ),
         [WS_METHODS.terminalWrite]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalWrite, terminalManager.write(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalWrite,
+            withVisibleThread(
+              input.threadId,
+              (threadId) => terminalNotFound(threadId, input.terminalId),
+              terminalManager.write(input),
+            ),
+            { "rpc.aggregate": "terminal" },
+          ),
         [WS_METHODS.terminalResize]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalResize, terminalManager.resize(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalResize,
+            withVisibleThread(
+              input.threadId,
+              (threadId) => terminalNotFound(threadId, input.terminalId),
+              terminalManager.resize(input),
+            ),
+            { "rpc.aggregate": "terminal" },
+          ),
         [WS_METHODS.terminalClear]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalClear, terminalManager.clear(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalClear,
+            withVisibleThread(
+              input.threadId,
+              (threadId) => terminalNotFound(threadId, input.terminalId),
+              terminalManager.clear(input),
+            ),
+            { "rpc.aggregate": "terminal" },
+          ),
         [WS_METHODS.terminalRestart]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalRestart, terminalManager.restart(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalRestart,
+            withVisibleThread(
+              input.threadId,
+              (threadId) => terminalNotFound(threadId, input.terminalId),
+              withOwnedWorkspacePath(
+                input.cwd,
+                () => terminalNotFound(input.threadId, input.terminalId),
+                terminalManager.restart(input),
+              ),
+            ),
+            { "rpc.aggregate": "terminal" },
+          ),
         [WS_METHODS.terminalClose]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalClose, terminalManager.close(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalClose,
+            withVisibleThread(
+              input.threadId,
+              (threadId) => terminalNotFound(threadId, input.terminalId ?? "term-1"),
+              terminalManager.close(input),
+            ),
+            { "rpc.aggregate": "terminal" },
+          ),
         [WS_METHODS.subscribeTerminalEvents]: (_input) =>
           observeRpcStream(
             WS_METHODS.subscribeTerminalEvents,
             Stream.callback<TerminalEvent>((queue) =>
               Effect.acquireRelease(
-                terminalManager.subscribe((event) => Queue.offer(queue, event)),
+                terminalManager.subscribe((event) =>
+                  provideClientVisibility(threadIsVisibleToClient(event.threadId)).pipe(
+                    Effect.flatMap((visible) =>
+                      visible ? Queue.offer(queue, event) : Effect.void,
+                    ),
+                  ),
+                ),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),
@@ -2116,20 +2393,80 @@ const makeWsRpcLayer = (
             WS_METHODS.subscribeTerminalMetadata,
             Stream.callback<TerminalMetadataStreamEvent>((queue) =>
               Effect.acquireRelease(
-                terminalManager.subscribeMetadata((event) => Queue.offer(queue, event)),
+                terminalManager.subscribeMetadata((event) =>
+                  provideClientVisibility(
+                    Effect.gen(function* () {
+                      if (event.type === "snapshot") {
+                        const terminals = [];
+                        for (const terminal of event.terminals) {
+                          if (yield* threadIsVisibleToClient(terminal.threadId)) {
+                            terminals.push(terminal);
+                          }
+                        }
+                        yield* Queue.offer(queue, { type: "snapshot" as const, terminals });
+                        return;
+                      }
+                      const threadId =
+                        event.type === "upsert" ? event.terminal.threadId : event.threadId;
+                      if (yield* threadIsVisibleToClient(threadId)) {
+                        yield* Queue.offer(queue, event);
+                      }
+                    }),
+                  ),
+                ),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),
             { "rpc.aggregate": "terminal" },
           ),
         [WS_METHODS.backgroundAppsList]: (input) =>
-          observeRpcEffect(WS_METHODS.backgroundAppsList, backgroundApps.list(input), {
-            "rpc.aggregate": "background-app",
-          }),
+          observeRpcEffect(
+            WS_METHODS.backgroundAppsList,
+            Effect.gen(function* () {
+              if (input.threadId !== undefined) {
+                yield* requireVisibleThread(input.threadId).pipe(
+                  Effect.mapError(
+                    (denied) =>
+                      new BackgroundAppError({
+                        operation: "list",
+                        detail: `Thread not found: ${denied.threadId}`,
+                      }),
+                  ),
+                );
+              }
+              const result = yield* backgroundApps.list(input);
+              const apps = [];
+              for (const app of result.apps) {
+                if (yield* threadIsVisibleToClient(app.threadId)) {
+                  apps.push(app);
+                }
+              }
+              return { ...result, apps };
+            }),
+            { "rpc.aggregate": "background-app" },
+          ),
         [WS_METHODS.backgroundAppsStart]: (input) =>
-          observeRpcEffect(WS_METHODS.backgroundAppsStart, backgroundApps.start(input), {
-            "rpc.aggregate": "background-app",
-          }),
+          observeRpcEffect(
+            WS_METHODS.backgroundAppsStart,
+            withVisibleThread(
+              input.threadId,
+              (threadId) =>
+                new BackgroundAppError({
+                  operation: "start",
+                  detail: `Thread not found: ${threadId}`,
+                }),
+              withOwnedWorkspacePath(
+                input.cwd,
+                (cwd) =>
+                  new BackgroundAppError({
+                    operation: "start",
+                    detail: `Workspace not found: ${cwd}`,
+                  }),
+                backgroundApps.start(input),
+              ),
+            ),
+            { "rpc.aggregate": "background-app" },
+          ),
         [WS_METHODS.backgroundAppsStop]: (input) =>
           observeRpcEffect(WS_METHODS.backgroundAppsStop, backgroundApps.stop(input), {
             "rpc.aggregate": "background-app",
@@ -2154,7 +2491,15 @@ const makeWsRpcLayer = (
             WS_METHODS.subscribeBackgroundApps,
             Stream.callback<BackgroundAppEvent>((queue) =>
               Effect.acquireRelease(
-                backgroundApps.subscribe(input, (event) => Queue.offer(queue, event)),
+                backgroundApps.subscribe(input, (event) =>
+                  provideClientVisibility(
+                    threadIsVisibleToClient(event.snapshot.threadId),
+                  ).pipe(
+                    Effect.flatMap((visible) =>
+                      visible ? Queue.offer(queue, event) : Effect.void,
+                    ),
+                  ),
+                ),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),

@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
 import { isRemoteReachableHost, resolveSessionCookieName } from "./utils.ts";
+import { isSessionDataIsolationEnabled } from "./SessionDataIsolation.ts";
 
 export class EnvironmentAuthPolicy extends Context.Service<
   EnvironmentAuthPolicy,
@@ -44,6 +45,7 @@ export const make = Effect.gen(function* () {
       instanceKey: config.stateDir,
       development: config.devUrl !== undefined,
     }),
+    sessionDataIsolation: isSessionDataIsolationEnabled(),
   };
 
   return EnvironmentAuthPolicy.of({

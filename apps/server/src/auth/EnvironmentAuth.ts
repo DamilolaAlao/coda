@@ -13,6 +13,8 @@ import {
   type AuthPairingCredentialResult,
   type AuthSessionId,
   type AuthSessionState,
+  isolationOwnerId,
+  isolationUserFromSubject,
   type ServerAuthDescriptor,
   type ServerAuthSessionMethod,
   type AuthWebSocketTicketResult,
@@ -35,6 +37,7 @@ import * as SessionStore from "./SessionStore.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
 import { layerConfig as SqlitePersistenceLayer } from "../persistence/Layers/Sqlite.ts";
 import * as GitHubOAuth from "../sourceControl/GitHubOAuth.ts";
+import { isSessionDataIsolationEnabled } from "./SessionDataIsolation.ts";
 
 export const DEFAULT_SESSION_SUBJECT = "cli-issued-session";
 export const INTERNAL_ADMINISTRATIVE_BOOTSTRAP_SUBJECT = "administrative-bootstrap";
@@ -415,6 +418,7 @@ export class EnvironmentAuth extends Context.Service<
     readonly createBrowserSession: (
       credential: string,
       requestMetadata: AuthClientMetadata,
+      occupancySubject?: string,
     ) => Effect.Effect<
       {
         readonly response: AuthBrowserSessionResult;
@@ -428,6 +432,7 @@ export class EnvironmentAuth extends Context.Service<
       requestMetadata: AuthClientMetadata,
       input?: {
         readonly proofKeyThumbprint?: string;
+        readonly occupancySubject?: string;
       },
     ) => Effect.Effect<
       AuthAccessTokenResult,
@@ -478,6 +483,9 @@ export class EnvironmentAuth extends Context.Service<
     readonly revokeOtherClientSessions: (
       currentSessionId: AuthSessionId,
     ) => Effect.Effect<number, ServerAuthInternalError>;
+    readonly logoutCurrentSession: (
+      sessionId: AuthSessionId,
+    ) => Effect.Effect<boolean, ServerAuthInternalError>;
     readonly authenticateHttpRequest: (
       request: HttpServerRequest.HttpServerRequest,
     ) => Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError>;
@@ -497,6 +505,16 @@ type BootstrapExchangeResult = {
   readonly response: AuthBrowserSessionResult;
   readonly sessionToken: string;
 };
+
+const occupancyUserFields = (
+  subject: string,
+): { readonly user?: string } => {
+  const user = isolationUserFromSubject(subject);
+  return user === undefined ? {} : { user };
+};
+
+const sameOccupancy = (left: AuthClientSession, right: AuthClientSession): boolean =>
+  isolationOwnerId(left) === isolationOwnerId(right);
 
 const AUTHORIZATION_PREFIX = "Bearer ";
 const DPOP_AUTHORIZATION_PREFIX = "DPoP ";
@@ -641,6 +659,7 @@ export const make = Effect.gen(function* () {
             auth: descriptor,
             scopes: session.scopes,
             sessionMethod: session.method,
+            ...occupancyUserFields(session.subject),
             ...(session.expiresAt ? { expiresAt: DateTime.toUtc(session.expiresAt) } : {}),
           }) satisfies AuthSessionState,
       ),
@@ -656,14 +675,16 @@ export const make = Effect.gen(function* () {
   const createBrowserSession: EnvironmentAuth["Service"]["createBrowserSession"] = (
     credential,
     requestMetadata,
+    occupancySubject,
   ) =>
     bootstrapCredentials.consume(credential).pipe(
       Effect.mapError(toBootstrapExchangeError),
-      Effect.flatMap((grant) =>
-        sessions
+      Effect.flatMap((grant) => {
+        const subject = occupancySubject ?? grant.subject;
+        return sessions
           .issue({
             method: "browser-session-cookie",
-            subject: grant.subject,
+            subject,
             scopes: grant.scopes,
             client: {
               ...requestMetadata,
@@ -672,20 +693,21 @@ export const make = Effect.gen(function* () {
           })
           .pipe(
             Effect.mapError((cause) => new ServerAuthAuthenticatedSessionIssueError({ cause })),
-          ),
-      ),
-      Effect.map(
-        (session) =>
-          ({
-            response: {
-              authenticated: true,
-              scopes: session.scopes,
-              sessionMethod: session.method,
-              expiresAt: DateTime.toUtc(session.expiresAt),
-            } satisfies AuthBrowserSessionResult,
-            sessionToken: session.token,
-          }) satisfies BootstrapExchangeResult,
-      ),
+            Effect.map(
+              (session) =>
+                ({
+                  response: {
+                    authenticated: true,
+                    scopes: session.scopes,
+                    sessionMethod: session.method,
+                    expiresAt: DateTime.toUtc(session.expiresAt),
+                    ...occupancyUserFields(subject),
+                  } satisfies AuthBrowserSessionResult,
+                  sessionToken: session.token,
+                }) satisfies BootstrapExchangeResult,
+            ),
+          );
+      }),
       Effect.withSpan("EnvironmentAuth.createBrowserSession"),
     );
 
@@ -702,7 +724,7 @@ export const make = Effect.gen(function* () {
             return yield* sessions
               .issue({
                 method: input?.proofKeyThumbprint ? "dpop-access-token" : "bearer-access-token",
-                subject: grant.subject,
+                subject: input?.occupancySubject ?? grant.subject,
                 scopes: grantedScopes,
                 ...(input?.proofKeyThumbprint
                   ? {
@@ -911,14 +933,30 @@ export const make = Effect.gen(function* () {
 
   const listClientSessions: EnvironmentAuth["Service"]["listClientSessions"] = (currentSessionId) =>
     listSessions().pipe(
-      Effect.map((clientSessions) =>
-        clientSessions.map(
+      Effect.map((clientSessions) => {
+        if (isSessionDataIsolationEnabled()) {
+          const current = clientSessions.find(
+            (clientSession) => clientSession.sessionId === currentSessionId,
+          );
+          if (current === undefined) {
+            return [];
+          }
+          return clientSessions
+            .filter((clientSession) => sameOccupancy(clientSession, current))
+            .map(
+              (clientSession): AuthClientSession => ({
+                ...clientSession,
+                current: clientSession.sessionId === currentSessionId,
+              }),
+            );
+        }
+        return clientSessions.map(
           (clientSession): AuthClientSession => ({
             ...clientSession,
             current: clientSession.sessionId === currentSessionId,
           }),
-        ),
-      ),
+        );
+      }),
       Effect.withSpan("EnvironmentAuth.listClientSessions"),
     );
 
@@ -928,15 +966,47 @@ export const make = Effect.gen(function* () {
     if (currentSessionId === targetSessionId) {
       return yield* new ServerAuthForbiddenOperationError({});
     }
+    if (isSessionDataIsolationEnabled()) {
+      const activeSessions = yield* listSessions();
+      const current = activeSessions.find(
+        (clientSession) => clientSession.sessionId === currentSessionId,
+      );
+      const target = activeSessions.find(
+        (clientSession) => clientSession.sessionId === targetSessionId,
+      );
+      if (current === undefined || target === undefined || !sameOccupancy(current, target)) {
+        return false;
+      }
+    }
     return yield* revokeSession(targetSessionId);
   });
 
-  const revokeOtherClientSessions: EnvironmentAuth["Service"]["revokeOtherClientSessions"] = (
-    currentSessionId,
-  ) =>
-    revokeOtherSessionsExcept(currentSessionId).pipe(
-      Effect.withSpan("EnvironmentAuth.revokeOtherClientSessions"),
-    );
+  const revokeOtherClientSessions: EnvironmentAuth["Service"]["revokeOtherClientSessions"] =
+    Effect.fn("EnvironmentAuth.revokeOtherClientSessions")(function* (currentSessionId) {
+      if (!isSessionDataIsolationEnabled()) {
+        return yield* revokeOtherSessionsExcept(currentSessionId);
+      }
+      const activeSessions = yield* listSessions();
+      const current = activeSessions.find(
+        (clientSession) => clientSession.sessionId === currentSessionId,
+      );
+      if (current === undefined) {
+        return 0;
+      }
+      const targets = activeSessions.filter(
+        (clientSession) =>
+          clientSession.sessionId !== currentSessionId && sameOccupancy(clientSession, current),
+      );
+      yield* Effect.forEach(
+        targets,
+        (target) => revokeSession(target.sessionId),
+        { concurrency: "unbounded", discard: true },
+      );
+      return targets.length;
+    });
+
+  const logoutCurrentSession: EnvironmentAuth["Service"]["logoutCurrentSession"] = (sessionId) =>
+    revokeSession(sessionId).pipe(Effect.withSpan("EnvironmentAuth.logoutCurrentSession"));
 
   const issueStartupPairingUrl: EnvironmentAuth["Service"]["issueStartupPairingUrl"] = (baseUrl) =>
     issueStartupPairingCredential().pipe(
@@ -1008,6 +1078,7 @@ export const make = Effect.gen(function* () {
     listClientSessions,
     revokeClientSession,
     revokeOtherClientSessions,
+    logoutCurrentSession,
     authenticateHttpRequest,
     authenticateWebSocketUpgrade,
     issueWebSocketTicket,

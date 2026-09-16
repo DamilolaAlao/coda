@@ -38,6 +38,7 @@ it.layer(NodeServices.layer)("EnvironmentAuthPolicy.layer", (it) => {
       // scans upward from 3773 for a free port and binds 127.0.0.1, so a second
       // instance shares this one's hostname on a different port.
       expect(descriptor.sessionCookieName).toBe("t3_session_3773");
+      expect(descriptor.sessionDataIsolation).toBe(true);
     }).pipe(
       Effect.provide(
         makeEnvironmentAuthPolicyLayer({

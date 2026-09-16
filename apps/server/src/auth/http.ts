@@ -37,6 +37,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { GitHubTenant } from "../sourceControl/GitHubTenant.ts";
+import { ClientSessionScope, clientSessionOccupancy } from "./SessionDataIsolation.ts";
 import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/traceRelayRequest.ts";
 import { deriveAuthClientMetadata, isHttpsHttpRequest } from "./utils.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
@@ -193,6 +194,7 @@ export const environmentAuthenticatedAuthLayer = Layer.effect(
             scopes: new Set(session.scopes),
           }),
           Effect.provideService(GitHubTenant, { sessionId: session.sessionId }),
+          Effect.provideService(ClientSessionScope, clientSessionOccupancy(session)),
           session.subject === "cloud-connect" ? traceAuthenticatedRelayRequest : identity,
         );
       }).pipe(Effect.catchTag("EnvironmentAuthInvalidError", appendDpopChallengeOnUnauthorized));
@@ -305,7 +307,9 @@ export const authHttpApiLayer = HttpApiBuilder.group(
                   ...(args.payload.client_os ? { os: args.payload.client_os } : {}),
                 },
               }),
-              proofKeyThumbprint ? { proofKeyThumbprint } : undefined,
+              {
+                ...(proofKeyThumbprint ? { proofKeyThumbprint } : {}),
+              },
             );
           },
           traceRelayRequest,
@@ -427,6 +431,33 @@ export const authHttpApiLayer = HttpApiBuilder.group(
             const session = yield* requireEnvironmentScope(AuthAccessWriteScope);
             const revokedCount = yield* serverAuth.revokeOtherClientSessions(session.sessionId);
             return { revokedCount };
+          },
+          Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
+            failEnvironmentInternal("client_session_revoke_failed", error),
+          ),
+        ),
+      )
+      .handle(
+        "logout",
+        Effect.fn("environment.auth.logout")(
+          function* (args) {
+            yield* annotateEnvironmentRequest(args.endpoint.name);
+            const session = yield* EnvironmentAuthenticatedPrincipal;
+            const request = yield* HttpServerRequest.HttpServerRequest;
+            const revoked = yield* serverAuth.logoutCurrentSession(session.sessionId);
+            const sessionCookies = yield* Effect.fromResult(
+              Cookies.expireCookie(Cookies.empty, sessions.cookieName, {
+                httpOnly: true,
+                path: "/",
+                sameSite: "lax",
+                secure: isHttpsHttpRequest(request),
+              }),
+            ).pipe(Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")));
+            yield* HttpEffect.appendPreResponseHandler((_request, response) =>
+              Effect.succeed(HttpServerResponse.mergeCookies(response, sessionCookies)),
+            );
+            yield* appendCredentialResponseHeaders;
+            return { revoked };
           },
           Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
             failEnvironmentInternal("client_session_revoke_failed", error),

@@ -501,6 +501,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             deletedAt: null,
+            ownerSessionId: event.payload.ownerSessionId ?? null,
           });
           return;
 
@@ -628,6 +629,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingUserInputCount: 0,
             hasActionableProposedPlan: 0,
             deletedAt: null,
+            ownerSessionId: event.payload.ownerSessionId ?? null,
           });
           return;
 

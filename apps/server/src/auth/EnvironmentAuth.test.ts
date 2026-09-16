@@ -236,25 +236,16 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         expect(listedPairingLinks.find((entry) => entry.id === pairingCredential.id)?.label).toBe(
           "Julius iPhone",
         );
-        expect(clientsBeforeRevoke).toHaveLength(2);
-        expect(
-          clientsBeforeRevoke.find((entry) => entry.sessionId === administrativeSession.sessionId)
-            ?.current,
-        ).toBe(true);
-        expect(
-          clientsBeforeRevoke.find((entry) => entry.sessionId === clientSession.sessionId)?.current,
-        ).toBe(false);
-        expect(
-          clientsBeforeRevoke.find((entry) => entry.sessionId === clientSession.sessionId)?.client
-            .label,
-        ).toBe("Julius iPhone");
-        expect(
-          clientsBeforeRevoke.find((entry) => entry.sessionId === clientSession.sessionId)?.client
-            .deviceType,
-        ).toBe("mobile");
-        expect(revokedCount).toBe(1);
+        expect(clientsBeforeRevoke).toHaveLength(1);
+        expect(clientsBeforeRevoke[0]?.sessionId).toBe(administrativeSession.sessionId);
+        expect(clientsBeforeRevoke[0]?.current).toBe(true);
+        expect(revokedCount).toBe(0);
         expect(clientsAfterRevoke).toHaveLength(1);
         expect(clientsAfterRevoke[0]?.sessionId).toBe(administrativeSession.sessionId);
+
+        const clientVisibleSessions = yield* serverAuth.listClientSessions(clientSession.sessionId);
+        expect(clientVisibleSessions).toHaveLength(1);
+        expect(clientVisibleSessions[0]?.sessionId).toBe(clientSession.sessionId);
       }).pipe(
         Effect.provide(
           makeEnvironmentAuthLayer({
@@ -262,5 +253,103 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
           }),
         ),
       ),
+  );
+
+  it.effect(
+    "groups sessions by GitHub occupancy, hides other occupants, and logs the current session out",
+    () =>
+      Effect.gen(function* () {
+        const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+        const sessions = yield* SessionStore.SessionStore;
+
+        const alicePairingA = yield* serverAuth.issuePairingCredential({ label: "Alice laptop" });
+        const aliceExchangeA = yield* serverAuth.createBrowserSession(
+          alicePairingA.credential,
+          requestMetadata,
+        );
+        const aliceIssuedA = yield* serverAuth.authenticateHttpRequest(
+          makeCookieRequest(sessions.cookieName, aliceExchangeA.sessionToken),
+        );
+        yield* sessions.setSubject(aliceIssuedA.sessionId, "github:42:alice");
+        const aliceSessionA = yield* serverAuth.authenticateHttpRequest(
+          makeCookieRequest(sessions.cookieName, aliceExchangeA.sessionToken),
+        );
+
+        const alicePairingB = yield* serverAuth.issuePairingCredential({ label: "Alice phone" });
+        const aliceExchangeB = yield* serverAuth.createBrowserSession(
+          alicePairingB.credential,
+          {
+            ...requestMetadata,
+            deviceType: "mobile",
+            os: "iOS",
+            browser: "Safari",
+            ipAddress: "192.168.1.88",
+          },
+        );
+        const aliceIssuedB = yield* serverAuth.authenticateHttpRequest(
+          makeCookieRequest(sessions.cookieName, aliceExchangeB.sessionToken),
+        );
+        yield* sessions.setSubject(aliceIssuedB.sessionId, "github:42:alice");
+        const aliceSessionB = yield* serverAuth.authenticateHttpRequest(
+          makeCookieRequest(sessions.cookieName, aliceExchangeB.sessionToken),
+        );
+
+        const bobPairing = yield* serverAuth.issuePairingCredential({ label: "Bob" });
+        const bobExchange = yield* serverAuth.createBrowserSession(
+          bobPairing.credential,
+          requestMetadata,
+        );
+        const bobIssued = yield* serverAuth.authenticateHttpRequest(
+          makeCookieRequest(sessions.cookieName, bobExchange.sessionToken),
+        );
+        yield* sessions.setSubject(bobIssued.sessionId, "github:99:bob");
+        const bobSession = yield* serverAuth.authenticateHttpRequest(
+          makeCookieRequest(sessions.cookieName, bobExchange.sessionToken),
+        );
+
+        expect(aliceSessionA.subject).toBe("github:42:alice");
+
+        const aliceClients = yield* serverAuth.listClientSessions(aliceSessionA.sessionId);
+        expect(aliceClients).toHaveLength(2);
+        expect(aliceClients.every((entry) => entry.subject.startsWith("github:42:"))).toBe(true);
+        expect(aliceClients.map((entry) => entry.sessionId).sort()).toEqual(
+          [aliceSessionA.sessionId, aliceSessionB.sessionId].sort(),
+        );
+        expect(
+          aliceClients.find((entry) => entry.sessionId === aliceSessionB.sessionId)?.client
+            .deviceType,
+        ).toBe("mobile");
+
+        const bobClients = yield* serverAuth.listClientSessions(bobSession.sessionId);
+        expect(bobClients).toHaveLength(1);
+        expect(bobClients[0]?.sessionId).toBe(bobSession.sessionId);
+
+        const revokedForeign = yield* serverAuth.revokeClientSession(
+          aliceSessionA.sessionId,
+          bobSession.sessionId,
+        );
+        expect(revokedForeign).toBe(false);
+
+        const revokedCount = yield* serverAuth.revokeOtherClientSessions(aliceSessionA.sessionId);
+        expect(revokedCount).toBe(1);
+        const aliceAfterRevoke = yield* serverAuth.listClientSessions(aliceSessionA.sessionId);
+        expect(aliceAfterRevoke).toHaveLength(1);
+        expect(aliceAfterRevoke[0]?.sessionId).toBe(aliceSessionA.sessionId);
+
+        const bobAfterAliceRevoke = yield* serverAuth.listClientSessions(bobSession.sessionId);
+        expect(bobAfterAliceRevoke).toHaveLength(1);
+
+        const loggedOut = yield* serverAuth.logoutCurrentSession(aliceSessionA.sessionId);
+        expect(loggedOut).toBe(true);
+        const aliceAuthAfterLogout = yield* serverAuth
+          .authenticateHttpRequest(
+            makeCookieRequest(sessions.cookieName, aliceExchangeA.sessionToken),
+          )
+          .pipe(Effect.flip);
+        expect(aliceAuthAfterLogout._tag).toBe("ServerAuthInvalidCredentialError");
+
+        const bobStill = yield* serverAuth.listClientSessions(bobSession.sessionId);
+        expect(bobStill).toHaveLength(1);
+      }).pipe(Effect.provide(makeEnvironmentAuthLayer())),
   );
 });

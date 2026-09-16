@@ -1,5 +1,6 @@
 import {
   ChevronsLeftRightEllipsisIcon,
+  LogOutIcon,
   PlusIcon,
   QrCodeIcon,
   RefreshCwIcon,
@@ -7,6 +8,7 @@ import {
 } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { type ReactNode, memo, useCallback, useId, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   AuthAccessReadScope,
   AuthAccessWriteScope,
@@ -18,6 +20,7 @@ import {
   AuthReviewWriteScope,
   AuthStandardClientScopes,
   AuthTerminalOperateScope,
+  isolationUserFromSubject,
   type AuthClientSession,
   type AuthEnvironmentScope,
   type AuthPairingLink,
@@ -897,6 +900,8 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
   onRevokeSession,
 }: ConnectedClientListRowProps) {
   const nowMs = useRelativeTimeTick(1_000);
+  const navigate = useNavigate();
+  const occupancyUser = isolationUserFromSubject(clientSession.subject);
   const isLive = clientSession.current || clientSession.connected;
   const lastConnectedAt = clientSession.lastConnectedAt;
   const statusTooltip = isLive
@@ -935,6 +940,11 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
                 This device
               </span>
             ) : null}
+            {occupancyUser ? (
+              <span className="text-[10px] text-muted-foreground/80 rounded-md border border-border/50 bg-muted/50 px-1 py-0.5">
+                {occupancyUser}
+              </span>
+            ) : null}
           </div>
           <p className="text-xs text-muted-foreground">
             {deviceInfoBits.length > 0 ? (
@@ -947,7 +957,16 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
           </p>
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
-          {!clientSession.current ? (
+          {clientSession.current ? (
+            <Button
+              size="xs"
+              variant="destructive-outline"
+              onClick={() => void navigate({ to: "/logout" })}
+            >
+              <LogOutIcon className="size-3" />
+              Log out
+            </Button>
+          ) : (
             <Button
               size="xs"
               variant="destructive-outline"
@@ -956,7 +975,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
             >
               {revokingClientSessionId === clientSession.sessionId ? "Revoking…" : "Revoke"}
             </Button>
-          ) : null}
+          )}
         </div>
       </div>
     </div>
@@ -980,6 +999,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
     ...AuthStandardClientScopes,
   ]);
   const [isCreatingPairingLink, setIsCreatingPairingLink] = useState(false);
+  const navigate = useNavigate();
 
   const handleCreatePairingLink = useCallback(async () => {
     setIsCreatingPairingLink(true);
@@ -1010,6 +1030,14 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
 
   return (
     <div className="flex items-center gap-2">
+      <Button
+        size="xs"
+        variant="destructive-outline"
+        onClick={() => void navigate({ to: "/logout" })}
+      >
+        <LogOutIcon className="size-3" />
+        Log out
+      </Button>
       <Button
         size="xs"
         variant="destructive-outline"

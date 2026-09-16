@@ -7,6 +7,7 @@
  * @module ProjectionThreadRepository
  */
 import {
+  AuthSessionId,
   CommandId,
   IsoDateTime,
   ModelSelection,
@@ -50,6 +51,7 @@ export const ProjectionThread = Schema.Struct({
   pendingUserInputCount: NonNegativeInt,
   hasActionableProposedPlan: NonNegativeInt,
   deletedAt: Schema.NullOr(IsoDateTime),
+  ownerSessionId: Schema.optional(Schema.NullOr(AuthSessionId)),
 });
 export type ProjectionThread = typeof ProjectionThread.Type;
 

@@ -254,6 +254,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           scripts: [],
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
+          ...(command.ownerSessionId !== undefined
+            ? { ownerSessionId: command.ownerSessionId }
+            : {}),
         },
       };
     }
@@ -379,6 +382,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           worktreePath: command.worktreePath,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
+          ...(command.ownerSessionId !== undefined
+            ? { ownerSessionId: command.ownerSessionId }
+            : {}),
         },
       };
     }

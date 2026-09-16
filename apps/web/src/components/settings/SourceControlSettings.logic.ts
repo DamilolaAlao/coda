@@ -62,14 +62,12 @@ export function resolveSourceControlProviderReadiness(input: {
 
 export function shouldShowHostedGitHubAuthGate(input: {
   readonly pairingRoute: boolean;
-  readonly unlocked: boolean;
   readonly githubConnected: boolean | null;
   readonly managedOAuthAvailable: boolean | null;
 }): boolean {
   if (input.pairingRoute || input.githubConnected === true) return false;
   if (input.managedOAuthAvailable === false) return false;
-  if (input.unlocked) return true;
-  return input.managedOAuthAvailable === true;
+  return true;
 }
 
 export function githubAuthorizeHref(authorizeUrl: string): string | null {

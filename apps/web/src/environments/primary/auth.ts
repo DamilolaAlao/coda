@@ -32,6 +32,7 @@ const PrimaryEnvironmentRequestOperation = Schema.Literals([
   "list-client-sessions",
   "revoke-client-session",
   "revoke-other-client-sessions",
+  "logout",
 ]);
 type PrimaryEnvironmentRequestOperation = typeof PrimaryEnvironmentRequestOperation.Type;
 
@@ -233,7 +234,13 @@ async function exchangeBootstrapCredential(credential: string): Promise<AuthBrow
     try {
       return await runPrimaryHttp(
         PrimaryEnvironmentHttpClient.pipe(
-          Effect.flatMap((client) => client.auth.browserSession({ payload: { credential } })),
+          Effect.flatMap((client) =>
+            client.auth.browserSession({
+              payload: {
+                credential,
+              },
+            }),
+          ),
         ),
       );
     } catch (error) {
@@ -356,6 +363,27 @@ export async function submitServerAuthCredential(credential: string): Promise<vo
   await exchangeBootstrapCredential(trimmedCredential);
   bootstrapPromise = null;
   stripPairingTokenFromUrl();
+}
+
+export function clearServerAuthGateState() {
+  resolvedAuthenticatedGateState = null;
+  bootstrapPromise = null;
+}
+
+export async function logoutServerSession(): Promise<void> {
+  clearServerAuthGateState();
+  try {
+    await runPrimaryHttp(
+      PrimaryEnvironmentHttpClient.pipe(
+        Effect.flatMap((client) => client.auth.logout({ headers: {} })),
+      ),
+    );
+  } catch (error) {
+    throw PrimaryEnvironmentRequestError.fromCause({
+      operation: "logout",
+      cause: error,
+    });
+  }
 }
 
 export async function createServerPairingCredential(input?: {

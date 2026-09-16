@@ -37,7 +37,6 @@ jobs:
       - name: Pack stack
         env:
           T3CODE_PUBLIC_URL: ${{ secrets.T3CODE_PUBLIC_URL }}
-          T3CODE_PAIRING_CODE: ${{ secrets.T3CODE_PAIRING_CODE }}
           GITHUB_CLIENT_ID: ${{ secrets.CODA_GITHUB_CLIENT_ID }}
           GITHUB_CLIENT_SECRET: ${{ secrets.CODA_GITHUB_CLIENT_SECRET }}
           GITHUB_REDIRECT_URI: ${{ secrets.CODA_GITHUB_REDIRECT_URI }}

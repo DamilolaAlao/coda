@@ -6,7 +6,6 @@ import {
   type ServerAuthBootstrapMethod,
 } from "@t3tools/contracts";
 import { signPairingJwt } from "@t3tools/shared/pairingJwt";
-import * as NodeCrypto from "node:crypto";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -69,21 +68,11 @@ export class UnavailableBootstrapCredentialError extends Schema.TaggedErrorClass
   }
 }
 
-export class PasscodeLockedError extends Schema.TaggedErrorClass<PasscodeLockedError>()(
-  "PasscodeLockedError",
-  {},
-) {
-  override get message(): string {
-    return "Too many incorrect passcode attempts. Try again in 30 seconds.";
-  }
-}
-
 export const BootstrapCredentialInvalidError = Schema.Union([
   UnknownBootstrapCredentialError,
   ExpiredBootstrapCredentialError,
   BootstrapCredentialProofKeyMismatchError,
   UnavailableBootstrapCredentialError,
-  PasscodeLockedError,
 ]);
 export type BootstrapCredentialInvalidError = typeof BootstrapCredentialInvalidError.Type;
 export const isBootstrapCredentialInvalidError = Schema.is(BootstrapCredentialInvalidError);
@@ -262,10 +251,6 @@ const DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES = Duration.minutes(5);
 // window can still recover by re-bootstrapping rather than locking
 // the user out of the backend.
 const DESKTOP_BOOTSTRAP_TTL_HOURS = Duration.hours(24);
-const PASSCODE_BOOTSTRAP_TTL = Duration.days(365);
-const PASSCODE_PATTERN = /^\d{6}$/;
-const PASSCODE_MAX_ATTEMPTS = 5;
-const PASSCODE_LOCKOUT = Duration.seconds(30);
 // A dev server's startup token is read off a log by whoever (or whatever) is
 // driving the session, often minutes later — after a `node --watch` restart, a
 // detour into another task, or a hand-off to the person actually doing the
@@ -284,10 +269,6 @@ export const make = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const pairingLinks = yield* AuthPairingLinks.AuthPairingLinkRepository;
   const seededGrantsRef = yield* Ref.make(new Map<string, StoredBootstrapGrant>());
-  const passcodeGateRef = yield* Ref.make<{
-    failures: number;
-    lockoutUntil: DateTime.Utc | null;
-  }>({ failures: 0, lockoutUntil: null });
   const changesPubSub = yield* PubSub.unbounded<BootstrapCredentialChange>();
   const generatePairingToken = (input: {
     readonly id: string;
@@ -352,74 +333,6 @@ export const make = Effect.gen(function* () {
       remainingUses: "unbounded",
     });
   }
-
-  const configuredPasscode = Option.match(
-    yield* Config.string("T3CODE_PAIRING_CODE").pipe(Config.option),
-    {
-      onNone: () => undefined,
-      onSome: (value) => {
-        const trimmed = value.trim();
-        return PASSCODE_PATTERN.test(trimmed) ? trimmed : undefined;
-      },
-    },
-  );
-  const pairingPasscodeBytes =
-    configuredPasscode === undefined ? undefined : Buffer.from(configuredPasscode, "utf8");
-
-  const consumeConfiguredPasscode = (credential: string) =>
-    Effect.gen(function* () {
-      const expected = pairingPasscodeBytes;
-      if (expected === undefined) {
-        return yield* new UnknownBootstrapCredentialError({});
-      }
-      const now = yield* DateTime.now;
-      const presented = Buffer.from(credential, "utf8");
-      const outcome = yield* Ref.modify(passcodeGateRef, (state) => {
-        if (state.lockoutUntil !== null && DateTime.isLessThan(now, state.lockoutUntil)) {
-          return [{ _tag: "locked" as const }, state];
-        }
-
-        const matches =
-          presented.length === expected.length &&
-          NodeCrypto.timingSafeEqual(presented, expected);
-
-        if (matches) {
-          return [{ _tag: "ok" as const }, { failures: 0, lockoutUntil: null }];
-        }
-
-        const failures = state.failures + 1;
-        if (failures >= PASSCODE_MAX_ATTEMPTS) {
-          return [
-            { _tag: "locked" as const },
-            {
-              failures: 0,
-              lockoutUntil: DateTime.add(now, {
-                milliseconds: Duration.toMillis(PASSCODE_LOCKOUT),
-              }),
-            },
-          ];
-        }
-
-        return [{ _tag: "unknown" as const }, { failures, lockoutUntil: null }];
-      });
-
-      if (outcome._tag === "ok") {
-        return {
-          method: "one-time-token" as const,
-          scopes: AuthAdministrativeScopes,
-          subject: "passcode-bootstrap",
-          expiresAt: DateTime.add(now, {
-            milliseconds: Duration.toMillis(PASSCODE_BOOTSTRAP_TTL),
-          }),
-        } satisfies BootstrapGrant;
-      }
-
-      if (outcome._tag === "locked") {
-        return yield* new PasscodeLockedError({});
-      }
-
-      return yield* new UnknownBootstrapCredentialError({});
-    });
 
   const listActive: PairingGrantStore["Service"]["listActive"] = Effect.fn(
     "PairingGrantStore.listActive",
@@ -533,10 +446,6 @@ export const make = Effect.gen(function* () {
   const consume: PairingGrantStore["Service"]["consume"] = Effect.fn("PairingGrantStore.consume")(
     function* (credential, input) {
       const trimmed = credential.trim();
-      if (pairingPasscodeBytes !== undefined && PASSCODE_PATTERN.test(trimmed)) {
-        return yield* consumeConfiguredPasscode(trimmed);
-      }
-
       const now = yield* DateTime.now;
       const seededResult: ConsumeResult = yield* Ref.modify(
         seededGrantsRef,

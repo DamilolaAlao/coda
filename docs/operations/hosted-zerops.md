@@ -6,21 +6,21 @@ This is a single-container T3 server plus the built web client on native Node 24
 (not a Docker VM), so Automatic Scaling can move CPU, RAM, and disk. Hermes and
 native addons are installed in the cached runtime image via `run.prepareCommands`.
 
-Do not bake `VITE_HTTP_URL`, `VITE_WS_URL`, a pairing PIN, or a public origin into
+Do not bake `VITE_HTTP_URL`, `VITE_WS_URL`, or a public origin into
 the web bundle. Same-origin serving is the default: the browser talks to the host
 it loaded.
 
 ## Secrets
 
-Never put a live pairing PIN or deploy token in git.
+Never put a live deploy token in git.
 
 | Variable               | Where                                                                                                                                                        |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `T3CODE_PAIRING_CODE`  | Six-digit PIN. Set in `deploy/zerops/.env` (gitignored) for `pack.sh`, or in the Zerops service env UI. If unset or not six digits, passcode pairing is off. |
-| `T3CODE_PUBLIC_URL`    | Public `https://` origin. Used as the pairing JWT audience. Same sources as the PIN.                                                                         |
+| `T3CODE_SESSION_DATA_ISOLATION` | On by default. Pairings only see projects owned by their GitHub account (or that pairing session before GitHub OAuth). Set `0`/`false`/`off`/`no` to share one environment across every pairing. See [session-data-isolation.md](../internals/session-data-isolation.md). |
+| `T3CODE_PUBLIC_URL`    | Public `https://` origin. Used as the pairing JWT audience. Same sources as the GitHub App secrets.                                                                         |
 | `GITHUB_CLIENT_ID`     | GitHub App or OAuth App client ID (`Iv23…` for GitHub Apps). Placeholders and numeric App IDs are ignored. Use a **public** GitHub App (hosted: `coda-io-intel`). Private apps 404 for anyone except the owner. The app’s callback URL must include `https://www.iointel.dev/api/auth/github/callback`. Packed into `zerops.yml` by `pack.sh` or set in the Zerops service env UI. |
 | `GITHUB_CLIENT_SECRET` | Client secret for the GitHub App. Same sources as `GITHUB_CLIENT_ID`.                                                                                        |
-| `GITHUB_REDIRECT_URI`  | Exact public callback URL: `https://<stack-host>/api/auth/github/callback`. Register the same URL in the GitHub App. The callback stays public HTTP; Connect GitHub itself is an authenticated RPC that stores a one-time state for that client session. |
+| `GITHUB_REDIRECT_URI`  | Exact public callback URL: `https://<stack-host>/api/auth/github/callback`. Register the same URL in the GitHub App. Sign-in starts at `GET /api/auth/github/start` and the callback issues the browser session. |
 | Zerops token           | `zcli login`, not the repo                                                                                                                                   |
 
 Copy [`deploy/zerops/.env.example`](../../deploy/zerops/.env.example) to
@@ -39,7 +39,7 @@ root.
 | `start.sh`              | Runtime start: `node dist/bin.mjs serve`                    |
 | `zerops.yml`            | Native Node 24 + Automatic Scaling; prepare installs Hermes |
 | `pack.sh`               | Bundles server + web dist into a push directory             |
-| `.env.example`          | Template for pack-time public URL and pairing code          |
+| `.env.example`          | Template for pack-time public URL and GitHub OAuth          |
 | `Dockerfile` / `run.sh` | Optional local Docker image; not used on Zerops             |
 
 ## Push
@@ -52,7 +52,6 @@ Set these GitHub Actions secrets on the repo:
 | ---------------------- | ------------------------------------------ |
 | `ZEROPS_TOKEN`         | From Zerops → Access Token Management      |
 | `T3CODE_PUBLIC_URL`    | Public `https://` origin                   |
-| `T3CODE_PAIRING_CODE`  | Six-digit PIN used by `pack.sh`            |
 | `CODA_GITHUB_CLIENT_ID`     | Public GitHub App client ID for hosted OAuth |
 | `CODA_GITHUB_CLIENT_SECRET` | GitHub App client secret                   |
 | `CODA_GITHUB_REDIRECT_URI`  | `https://www.iointel.dev/api/auth/github/callback` on production |

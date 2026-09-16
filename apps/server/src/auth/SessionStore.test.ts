@@ -47,6 +47,7 @@ const failingSessionLookupRepositoryLayer = Layer.succeed(AuthSessions.AuthSessi
   revoke: () => Effect.fail(repositoryFailure),
   revokeAllExcept: () => Effect.fail(repositoryFailure),
   setLastConnectedAt: () => Effect.void,
+  setSubject: () => Effect.void,
 });
 
 const failingSessionLookupCredentialLayer = Layer.effect(
@@ -82,6 +83,19 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(verified.client.label).toBe("Desktop app");
       expect(verified.client.browser).toBe("Electron");
       expect(verified.expiresAt?.toString()).toBe(issued.expiresAt.toString());
+    }).pipe(Effect.provide(makeSessionStoreLayer())),
+  );
+  it.effect("reads occupancy subject from the session row after GitHub attach", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({
+        subject: "passcode-bootstrap",
+      });
+      yield* sessions.setSubject(issued.sessionId, "github:42:alice");
+      const verified = yield* sessions.verify(issued.token);
+
+      expect(verified.sessionId).toBe(issued.sessionId);
+      expect(verified.subject).toBe("github:42:alice");
     }).pipe(Effect.provide(makeSessionStoreLayer())),
   );
   it.effect("rejects malformed session tokens", () =>

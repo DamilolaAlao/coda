@@ -10,6 +10,7 @@ This is a living glossary for Coda. It explains what common terms mean in this c
 - [Thread timeline](#thread-timeline)
 - [Background apps](#background-apps)
 - [Orchestration](#orchestration)
+- [Session data isolation](#session-data-isolation)
 - [Provider runtime](#provider-runtime)
 - [Checkpointing](#checkpointing)
 
@@ -94,6 +95,10 @@ A typed signal emitted when an async milestone completes, such as `checkpoint.ba
 #### Quiesced
 
 "Quiesced" means a turn has gone quiet and stable: follow-up work such as [CheckpointReactor.ts][6] has settled. It appears in [the receipt schema][13], so in practice it is something tests wait on rather than a production signal.
+
+### Session data isolation
+
+Per-user visibility over projects and threads in one environment. On by default. Sign in with GitHub; occupancy is that GitHub account (`github:<id>`). Devices signed in as the same GitHub user share projects and sessions; unowned (legacy) rows are hidden from clients. Logging out ends this device session without deleting GitHub-owned data. Set `T3CODE_SESSION_DATA_ISOLATION=0` to restore classic sharing across every pairing. See [session-data-isolation.md](./session-data-isolation.md).
 
 ### Provider runtime
 

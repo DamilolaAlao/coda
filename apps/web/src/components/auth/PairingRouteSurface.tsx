@@ -10,9 +10,8 @@ import {
   submitServerAuthCredential,
 } from "../../environments/primary";
 import { readHostedPairingRequest } from "../../hostedPairing";
-import { writePasscodeUnlocked } from "../../passcodeGate";
+import { GitHubIcon } from "../Icons";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 export function PairingPendingSurface() {
@@ -49,7 +48,6 @@ export function PairingRouteSurface({
   onAuthenticated: () => void;
 }) {
   const autoPairTokenRef = useRef<string | null>(peekPairingTokenFromUrl());
-  const [credential, setCredential] = useState(() => autoPairTokenRef.current ?? "");
   const [errorMessage, setErrorMessage] = useState(initialErrorMessage ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const autoSubmitAttemptedRef = useRef(false);
@@ -71,23 +69,11 @@ export function PairingRouteSurface({
         return;
       }
 
-      if (/^\d{6}$/.test(nextCredential.trim())) {
-        writePasscodeUnlocked(true);
-      }
-
       startTransition(() => {
         onAuthenticated();
       });
     },
     [onAuthenticated],
-  );
-
-  const handleSubmit = useCallback(
-    async (event?: React.SubmitEvent<HTMLFormElement>) => {
-      event?.preventDefault();
-      await submitCredential(credential);
-    },
-    [submitCredential, credential],
   );
 
   useEffect(() => {
@@ -114,40 +100,20 @@ export function PairingRouteSurface({
           {APP_DISPLAY_NAME}
         </p>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
-          Pair with this environment
+          {autoPairTokenRef.current ? "Pair with this environment" : "Sign in with GitHub"}
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          {describeAuthGate(auth.bootstrapMethods)}
+          {autoPairTokenRef.current
+            ? describeAuthGate(auth.bootstrapMethods)
+            : "The same GitHub account on every device shares your projects."}
         </p>
 
-        <form className="mt-6 space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="pairing-token">
-              Passcode
-            </label>
-            <Input
-              id="pairing-token"
-              autoCapitalize="none"
-              autoComplete="one-time-code"
-              autoCorrect="off"
-              disabled={isSubmitting}
-              nativeInput
-              inputMode="numeric"
-              maxLength={6}
-              onChange={(event) => {
-                const next = event.currentTarget.value.replace(/\D/g, "").slice(0, 6);
-                setCredential(next);
-                if (/^\d{6}$/.test(next)) {
-                  void submitCredential(next);
-                }
-              }}
-              pattern="\d{6}"
-              placeholder="6-digit passcode"
-              type="password"
-              spellCheck={false}
-              value={credential}
-            />
-          </div>
+        <div className="mt-6 space-y-4">
+          {autoPairTokenRef.current ? (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Pairing link is ready. Continue to connect this device.
+            </p>
+          ) : null}
 
           {errorMessage ? (
             <div className="rounded-lg border border-destructive/30 bg-destructive/6 px-3 py-2 text-sm text-destructive">
@@ -156,9 +122,21 @@ export function PairingRouteSurface({
           ) : null}
 
           <div className="flex flex-wrap gap-2">
-            <Button disabled={isSubmitting} size="sm" type="submit">
-              {isSubmitting ? "Pairing..." : "Continue"}
-            </Button>
+            {autoPairTokenRef.current ? (
+              <Button disabled={isSubmitting} size="sm">
+                {isSubmitting ? "Pairing..." : "Continue"}
+              </Button>
+            ) : (
+              <Button
+                disabled={isSubmitting}
+                onClick={() => {
+                  window.location.assign("/api/auth/github/start");
+                }}
+              >
+                <GitHubIcon className="size-4" />
+                Continue with GitHub
+              </Button>
+            )}
             <Button
               disabled={isSubmitting}
               onClick={() => window.location.reload()}
@@ -168,7 +146,7 @@ export function PairingRouteSurface({
               Reload app
             </Button>
           </div>
-        </form>
+        </div>
 
         <div className="mt-6 rounded-lg border border-border/70 bg-background/55 px-3 py-3 text-xs leading-relaxed text-muted-foreground">
           {describeSupportedMethods(auth.bootstrapMethods)}
@@ -319,7 +297,7 @@ function describeAuthGate(bootstrapMethods: ReadonlyArray<string>): string {
     return "This environment expects a trusted pairing credential before the app can connect.";
   }
 
-  return "Enter the 6-digit passcode for this environment.";
+  return "Open the pairing link from this environment, or sign in with GitHub.";
 }
 
 function describeSupportedMethods(bootstrapMethods: ReadonlyArray<string>): string {
@@ -334,5 +312,5 @@ function describeSupportedMethods(bootstrapMethods: ReadonlyArray<string>): stri
     return "This environment is desktop-managed. Open it from the desktop app or paste a bootstrap credential if one was issued explicitly.";
   }
 
-  return "This environment accepts a 6-digit passcode. The server checks it and issues a session.";
+  return "Sign in with GitHub. A one-time pairing link from the server also works.";
 }
