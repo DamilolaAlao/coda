@@ -8,7 +8,14 @@
   --hl-mint-ink: #06201c;
   --hl-serif: "Instrument Serif", "Iowan Old Style", "Palatino Linotype", Palatino, serif;
   --hl-sans: Inter, "Inter Fallback", ui-sans-serif, system-ui, sans-serif;
-  min-height: 100dvh;
+  /* html/body/#root stay overflow:hidden for the chat shell, and React
+     wrappers between #root and this node do not have a definite height.
+     Pin a viewport scrollport so Features/Platforms can actually move. */
+  position: fixed;
+  inset: 0;
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   background: var(--hl-bg);
   color: var(--hl-fg);
   font-family: var(--hl-sans);
