@@ -1,3 +1,7 @@
+import {
+  backgroundAppProgressHint,
+  backgroundAppStatusLabel,
+} from "@t3tools/client-runtime/state/background-apps";
 import type { BackgroundAppSnapshot } from "@t3tools/contracts";
 import { EnvironmentId, isUnownedDiscoveredApp, ThreadId } from "@t3tools/contracts";
 import type { StaticScreenProps } from "@react-navigation/native";
@@ -36,7 +40,7 @@ function ActionButton(props: {
 function AppCard(props: {
   readonly app: BackgroundAppSnapshot;
   readonly environmentId: EnvironmentId;
-  readonly busy: boolean;
+  readonly busyKind: "stop" | "restart" | null;
   readonly onRestart: () => void;
   readonly onStop: () => void;
 }) {
@@ -57,6 +61,10 @@ function AppCard(props: {
     : app.source === "discovered" && !app.capabilities.canRestart
       ? "Restart is unavailable because Coda did not launch this process."
       : null;
+  const progressHint = unavailable ? null : backgroundAppProgressHint(app);
+  const restartBusy = props.busyKind === "restart";
+  const stopBusy = props.busyKind === "stop";
+  const actionBusy = props.busyKind !== null;
 
   return (
     <View className="gap-3 rounded-2xl border border-border bg-card p-4">
@@ -64,12 +72,19 @@ function AppCard(props: {
         <View className="min-w-0 flex-1">
           <Text className="font-semibold">{app.label}</Text>
           <Text className="mt-1 text-xs text-muted-foreground">
-            {app.status} · {app.source === "managed" ? "Managed" : "Discovered"}
+            {backgroundAppStatusLabel(app.status)} ·{" "}
+            {app.source === "managed" ? "Managed" : "Discovered"}
           </Text>
         </View>
         <View
           className={`mt-1 size-2.5 rounded-full ${
-            app.status === "running" ? "bg-green-500" : "bg-muted-foreground"
+            app.status === "running"
+              ? "bg-green-500"
+              : app.status === "failed"
+                ? "bg-destructive"
+                : app.status === "starting" || app.status === "stopping"
+                  ? "bg-amber-500"
+                  : "bg-muted-foreground"
           }`}
         />
       </View>
@@ -84,6 +99,7 @@ function AppCard(props: {
         </Text>
       ))}
       {unavailable ? <Text className="text-xs text-muted-foreground">{unavailable}</Text> : null}
+      {progressHint ? <Text className="text-xs text-muted-foreground">{progressHint}</Text> : null}
       <View className="flex-row flex-wrap gap-2">
         {app.capabilities.canOpen && endpoint ? (
           <ActionButton
@@ -92,10 +108,18 @@ function AppCard(props: {
           />
         ) : null}
         {app.capabilities.canRestart ? (
-          <ActionButton label="Restart" disabled={props.busy} onPress={props.onRestart} />
+          <ActionButton
+            label={restartBusy ? "Restarting…" : "Restart"}
+            disabled={actionBusy || app.status === "starting" || app.status === "stopping"}
+            onPress={props.onRestart}
+          />
         ) : null}
         {app.capabilities.canStop ? (
-          <ActionButton label="Stop" disabled={props.busy} onPress={props.onStop} />
+          <ActionButton
+            label={stopBusy || app.status === "stopping" ? "Stopping…" : "Stop"}
+            disabled={actionBusy || app.status === "stopping"}
+            onPress={props.onStop}
+          />
         ) : null}
       </View>
       {app.capabilities.canReadLogs ? (
@@ -106,7 +130,9 @@ function AppCard(props: {
             </Text>
           </ScrollView>
         ) : (
-          <Text className="text-xs text-muted-foreground">No logs yet.</Text>
+          <Text className="text-xs text-muted-foreground">
+            {logs.isPending ? "Connecting to logs…" : "Waiting for output…"}
+          </Text>
         )
       ) : (
         <Text className="text-xs text-muted-foreground">Logs are unavailable for this process.</Text>
@@ -129,7 +155,10 @@ export function BackgroundAppsRouteScreen({ route }: Props) {
   });
   const [apps, setApps] = useState<ReadonlyArray<BackgroundAppSnapshot>>([]);
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<{
+    readonly appId: string;
+    readonly kind: "stop" | "restart";
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     const result = await listApps({ environmentId, input: { threadId } });
@@ -143,10 +172,10 @@ export function BackgroundAppsRouteScreen({ route }: Props) {
 
   const mutate = useCallback(
     async (operation: "restart" | "stop", appId: string) => {
-      setBusyId(appId);
+      setBusyAction({ appId, kind: operation });
       const run = operation === "restart" ? restartApp : stopApp;
       const result = await run({ environmentId, input: { appId } });
-      setBusyId(null);
+      setBusyAction(null);
       if (result._tag === "Failure") {
         Alert.alert("Background app", `Unable to ${operation} this app.`);
         return;
@@ -161,7 +190,11 @@ export function BackgroundAppsRouteScreen({ route }: Props) {
       contentInsetAdjustmentBehavior="automatic"
       contentContainerClassName="gap-3 p-4 pb-10"
     >
-      {loading ? <Text className="text-muted-foreground">Loading background apps…</Text> : null}
+      {loading ? (
+        <Text accessibilityRole="text" className="py-8 text-center text-muted-foreground">
+          Loading apps…
+        </Text>
+      ) : null}
       {!loading && apps.length === 0 ? (
         <View className="items-center gap-2 py-16">
           <Text className="text-lg font-semibold">No background apps</Text>
@@ -175,7 +208,7 @@ export function BackgroundAppsRouteScreen({ route }: Props) {
           key={app.id}
           app={app}
           environmentId={environmentId}
-          busy={busyId === app.id}
+          busyKind={busyAction?.appId === app.id ? busyAction.kind : null}
           onRestart={() => void mutate("restart", app.id)}
           onStop={() => void mutate("stop", app.id)}
         />

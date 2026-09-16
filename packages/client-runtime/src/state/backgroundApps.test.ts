@@ -4,9 +4,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   applyBackgroundAppEvent,
+  backgroundAppProgressHint,
+  backgroundAppStatusLabel,
   EMPTY_BACKGROUND_APP_STATE,
   groupBackgroundApps,
   hydrateBackgroundApps,
+  isBackgroundAppTransitionalStatus,
   matchBackgroundAppForServer,
 } from "./backgroundApps.ts";
 
@@ -72,6 +75,23 @@ describe("background app client state", () => {
     expect(reconnected.apps.has(first.id)).toBe(false);
     expect(reconnected.apps.get("other")?.label).toBe("Other");
     expect(reconnected.serverEpoch).toBe("epoch-2");
+  });
+
+  it("labels transitional statuses without treating them as idle", () => {
+    expect(backgroundAppStatusLabel("starting")).toBe("Starting…");
+    expect(backgroundAppStatusLabel("stopping")).toBe("Stopping…");
+    expect(isBackgroundAppTransitionalStatus("starting")).toBe(true);
+    expect(isBackgroundAppTransitionalStatus("running")).toBe(false);
+    expect(backgroundAppProgressHint({ status: "starting", endpoints: [] })).toBe(
+      "Waiting for a listening port…",
+    );
+    expect(
+      backgroundAppProgressHint({
+        status: "starting",
+        endpoints: [{ host: "127.0.0.1", port: 5173, url: "http://127.0.0.1:5173" }],
+      }),
+    ).toBeNull();
+    expect(backgroundAppProgressHint({ status: "stopping", endpoints: [] })).toBe("Shutting down…");
   });
 
   it("groups running and stopped apps", () => {

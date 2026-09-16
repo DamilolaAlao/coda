@@ -711,7 +711,7 @@ export function AddProjectRepositoryScreen(props: {
         StackActions.push("AddProjectDestination", {
           environmentId: environment.environmentId,
           source,
-          remoteUrl: repository.sshUrl,
+          remoteUrl: repository.url,
           repositoryTitle: repository.nameWithOwner,
         }),
       );

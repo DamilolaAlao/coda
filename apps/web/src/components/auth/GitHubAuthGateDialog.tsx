@@ -5,19 +5,32 @@ import { Button } from "../ui/button";
 export function GitHubAuthGateDialog({
   open,
   isConnecting,
+  isChecking,
   environmentReady,
   errorMessage,
   onConnect,
 }: {
   readonly open: boolean;
   readonly isConnecting: boolean;
+  readonly isChecking?: boolean;
   readonly environmentReady: boolean;
   readonly errorMessage: string;
   readonly onConnect: () => void;
 }) {
   if (!open) return null;
 
-  const busy = isConnecting || !environmentReady;
+  const checking = isChecking === true;
+  const busy = isConnecting || checking || !environmentReady;
+  const actionLabel = isConnecting
+    ? "Connecting…"
+    : checking
+      ? "Checking GitHub…"
+      : environmentReady
+        ? "Continue with GitHub"
+        : "Preparing environment…";
+  const description = checking
+    ? "Checking whether this browser already has a GitHub account connected."
+    : "Passcode accepted. Continue with GitHub for this browser. Each paired client keeps its own GitHub account.";
 
   return (
     <div className="fixed inset-0 z-50 flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
@@ -34,10 +47,7 @@ export function GitHubAuthGateDialog({
         <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
           Sign in with GitHub
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Passcode accepted. Continue with GitHub for this browser. Each paired client keeps its own
-          GitHub account.
-        </p>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
 
         {errorMessage ? (
           <div className="mt-5 rounded-lg border border-destructive/30 bg-destructive/6 px-3 py-2 text-sm text-destructive whitespace-pre-wrap">
@@ -48,11 +58,7 @@ export function GitHubAuthGateDialog({
         <div className="mt-6 flex flex-wrap gap-2">
           <Button disabled={busy} onClick={onConnect}>
             <GitHubIcon className="size-4" />
-            {isConnecting
-              ? "Connecting…"
-              : environmentReady
-                ? "Continue with GitHub"
-                : "Preparing environment…"}
+            {actionLabel}
           </Button>
         </div>
       </section>

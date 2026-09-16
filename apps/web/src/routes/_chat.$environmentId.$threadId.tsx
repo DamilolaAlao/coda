@@ -7,6 +7,7 @@ import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../comp
 import { resolveThreadRouteRef, resolveThreadRouteRenderState } from "../threadRoutes";
 import { resolveThreadSyncPhase } from "../threadSync";
 import { SidebarInset } from "~/components/ui/sidebar";
+import { WorkspaceContentLoading } from "~/components/WorkspaceContentLoading";
 import {
   useEnvironmentThreadRefs,
   useThreadDetail,
@@ -28,7 +29,7 @@ function ChatThreadRouteView() {
   const serverThreadDetail = useThreadDetail(threadRef);
   const serverThreadStatus = useThreadStatus(threadRef);
   const environmentThreadRefs = useEnvironmentThreadRefs(threadRef?.environmentId ?? null);
-  const bootstrapComplete = shell.data?.snapshot._tag === "Some";
+  const bootstrapComplete = shell.data?.snapshot?._tag === "Some";
   const environmentHasServerThreads = environmentThreadRefs.length > 0;
   const draftThreadExists = useComposerDraftStore((store) =>
     threadRef ? store.getDraftThreadByRef(threadRef) !== null : false,
@@ -87,6 +88,8 @@ function ChatThreadRouteView() {
           routeKind="server"
           threadSyncPhase={threadSyncPhase}
         />
+      ) : renderState === "loading" ? (
+        <WorkspaceContentLoading label="Loading thread…" />
       ) : null}
     </SidebarInset>
   );

@@ -59,6 +59,17 @@ export const githubProcessEnv = (token: string): NodeJS.ProcessEnv => ({
   GH_HOST: GITHUB_HOST,
 });
 
+/** Git HTTPS clone env that authenticates without putting the token in argv. */
+export const githubHttpsCloneEnv = (token: string): NodeJS.ProcessEnv => ({
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_ASKPASS: "",
+  SSH_ASKPASS: "",
+  SSH_ASKPASS_REQUIRE: "never",
+  GIT_CONFIG_COUNT: "1",
+  GIT_CONFIG_KEY_0: `http.https://${GITHUB_HOST}/.extraheader`,
+  GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Encoding.encodeBase64(`x-access-token:${token}`)}`,
+});
+
 export const envContainsGitHubToken = (
   env: NodeJS.ProcessEnv | undefined,
   token: string,

@@ -183,6 +183,23 @@ export function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | nu
   return repositoryNameWithOwner.length > 0 ? repositoryNameWithOwner : null;
 }
 
+/** Parse `owner/repo` or common GitHub URL shapes into API lookup coordinates. */
+export function parseGitHubRepositoryLocator(
+  repository: string,
+): { owner: string; repo: string } | null {
+  const trimmed = repository.trim().replace(/\/+$/u, "");
+  const fromUrl = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(trimmed);
+  const withoutGit = trimmed.replace(/\.git$/i, "");
+  const hosted =
+    /(?:^|\/\/)(?:www\.)?github\.com[:/]([^/\s]+)\/([^/\s]+)/i.exec(trimmed) ??
+    /^([^/\s]+)\/([^/\s]+)$/.exec(withoutGit);
+  const nameWithOwner = fromUrl ?? (hosted ? `${hosted[1]}/${hosted[2]}` : null);
+  if (!nameWithOwner) return null;
+  const [owner, repo] = nameWithOwner.split("/");
+  if (!owner || !repo) return null;
+  return { owner, repo: repo.replace(/\.git$/i, "") };
+}
+
 function deriveLocalBranchNameCandidatesFromRemoteRef(
   branchName: string,
   remoteName?: string,

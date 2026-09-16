@@ -28,6 +28,7 @@ import {
   type SourceControlRepositoryInfo,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
 } from "@t3tools/contracts";
+import { parseGitHubRepositoryLocator } from "@t3tools/shared/git";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
@@ -125,9 +126,11 @@ import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteContent } from "./CommandPaletteContent";
 import { CommandPaletteResults } from "./CommandPaletteResults";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "./Icons";
+import { resolveSourceControlProviderReadiness } from "./settings/SourceControlSettings.logic";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
+import { Switch } from "./ui/switch";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { ThreadCommandSubtitle } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
@@ -289,7 +292,7 @@ function remoteProjectInputPlaceholder(flow: AddProjectCloneFlow | null): string
   if (flow.source === "url") {
     return "Enter Git clone URL";
   }
-  return `Enter ${remoteProjectSourceLabel(flow.source)} repository (${remoteProjectSourcePathHint(flow.source)})`;
+  return `Search or enter ${remoteProjectSourceLabel(flow.source)} repository (${remoteProjectSourcePathHint(flow.source)})`;
 }
 
 function sourceProviderKind(source: AddProjectRemoteSource): AddProjectRemoteProviderKind | null {
@@ -311,22 +314,36 @@ function sortAddProjectProviderSources(
 
 type AddProjectRemoteSourceReadiness = Record<
   AddProjectRemoteSource,
-  { readonly ready: boolean; readonly hint: string | null }
+  { readonly ready: boolean; readonly pending: boolean; readonly hint: string | null }
 >;
 
 function buildAddProjectRemoteSourceReadiness(
   discovery: SourceControlDiscoveryResult | null,
+  pending: boolean,
 ): AddProjectRemoteSourceReadiness {
-  const unavailable = {
-    ready: false,
-    hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
-  } as const;
+  const url = { ready: true, pending: false, hint: null } as const;
   const defaultReadiness: AddProjectRemoteSourceReadiness = {
-    url: { ready: true, hint: null },
-    github: unavailable,
-    gitlab: unavailable,
-    bitbucket: unavailable,
-    "azure-devops": unavailable,
+    url,
+    github: resolveSourceControlProviderReadiness({
+      pending,
+      label: "GitHub",
+      provider: undefined,
+    }),
+    gitlab: resolveSourceControlProviderReadiness({
+      pending,
+      label: "GitLab",
+      provider: undefined,
+    }),
+    bitbucket: resolveSourceControlProviderReadiness({
+      pending,
+      label: "Bitbucket",
+      provider: undefined,
+    }),
+    "azure-devops": resolveSourceControlProviderReadiness({
+      pending,
+      label: "Azure DevOps",
+      provider: undefined,
+    }),
   };
 
   if (!discovery) {
@@ -341,25 +358,11 @@ function buildAddProjectRemoteSourceReadiness(
   for (const source of REMOTE_PROJECT_SOURCES) {
     const kind = sourceProviderKind(source);
     if (!kind) continue;
-    const provider = providerByKind.get(kind);
-    if (!provider) {
-      readiness[source] = unavailable;
-      continue;
-    }
-    if (provider.status !== "available") {
-      readiness[source] = { ready: false, hint: provider.installHint };
-      continue;
-    }
-    if (provider.auth.status === "unauthenticated") {
-      readiness[source] = {
-        ready: false,
-        hint:
-          Option.getOrNull(provider.auth.detail) ??
-          `${provider.label} is not authenticated. Open Settings -> Source Control for setup guidance.`,
-      };
-      continue;
-    }
-    readiness[source] = { ready: true, hint: null };
+    readiness[source] = resolveSourceControlProviderReadiness({
+      pending: false,
+      label: remoteProjectSourceLabel(source),
+      provider: providerByKind.get(kind),
+    });
   }
 
   return readiness;
@@ -576,6 +579,9 @@ function OpenCommandPaletteDialog(props: {
   const lookupRepository = useAtomQueryRunner(sourceControlEnvironment.repository, {
     reportFailure: false,
   });
+  const searchGitHubRepositories = useAtomQueryRunner(sourceControlEnvironment.repositorySearch, {
+    reportFailure: false,
+  });
   const loadBrowsePath = useAtomQueryRunner(filesystemEnvironment.browse, {
     reportFailure: false,
     reportDefect: false,
@@ -643,6 +649,12 @@ function OpenCommandPaletteDialog(props: {
   const [addProjectCloneFlow, setAddProjectCloneFlow] = useState<AddProjectCloneFlow | null>(null);
   const [isRemoteProjectLookingUp, setIsRemoteProjectLookingUp] = useState(false);
   const [isRemoteProjectCloning, setIsRemoteProjectCloning] = useState(false);
+  const [githubSearchResults, setGithubSearchResults] = useState<
+    ReadonlyArray<SourceControlRepositoryInfo>
+  >([]);
+  const [isGithubSearchPending, setIsGithubSearchPending] = useState(false);
+  const [githubSearchOwnerOnly, setGithubSearchOwnerOnly] = useState(true);
+  const deferredRepositoryQuery = useDeferredValue(query.trim());
   const projectGroupingSettings = useMemo(
     () => selectProjectGroupingSettings(clientSettings),
     [clientSettings],
@@ -806,6 +818,12 @@ function OpenCommandPaletteDialog(props: {
           input: {},
         }),
   );
+  const connectedGitHubAccount = useMemo(() => {
+    const github = sourceControlDiscovery.data?.sourceControlProviders.find(
+      (provider) => provider.kind === "github",
+    );
+    return github ? Option.getOrNull(github.auth.account) : null;
+  }, [sourceControlDiscovery.data]);
   const browseEnvironmentPlatform = getEnvironmentBrowsePlatform(
     browseEnvironment?.serverConfig?.environment.platform.os,
   );
@@ -1167,6 +1185,7 @@ function OpenCommandPaletteDialog(props: {
     (environmentId: EnvironmentId, source: AddProjectRemoteSource): void => {
       setAddProjectEnvironmentId(environmentId);
       setAddProjectCloneFlow({ step: "repository", environmentId, source });
+      setGithubSearchOwnerOnly(true);
       pushPaletteView({
         addonIcon: remoteProjectSourceIcon(source, ADDON_ICON_CLASS),
         groups: [],
@@ -1215,8 +1234,9 @@ function OpenCommandPaletteDialog(props: {
             : `Clone ${label} ${remoteProjectSourcePathHint(source)}`;
         const readiness = readinessBySource[source];
         const disabledHint = readiness.hint;
-
-        const titleTrailingContent = readiness.ready ? undefined : (
+        const titleTrailingContent = readiness.pending ? (
+          <span className="ml-auto text-[10px] text-muted-foreground">Loading…</span>
+        ) : readiness.ready ? undefined : (
           <span className="ml-auto">
             <Tooltip>
               <TooltipTrigger
@@ -1244,9 +1264,11 @@ function OpenCommandPaletteDialog(props: {
           sourceItems.push({
             kind: "action",
             value: `action:add-project:${environmentId}:${source}:not-ready`,
-            searchTerms: ["clone", "remote", "repository", "repo", "git", label, "setup required"],
+            searchTerms: readiness.pending
+              ? ["clone", "remote", "repository", "repo", "git", label, "loading"]
+              : ["clone", "remote", "repository", "repo", "git", label, "setup required"],
             title,
-            description,
+            description: readiness.pending ? `Checking ${label}…` : description,
             disabled: true,
             icon: remoteProjectSourceIcon(source, ITEM_ICON_CLASS),
             ...(titleTrailingContent ? { titleTrailingContent } : {}),
@@ -1298,6 +1320,9 @@ function OpenCommandPaletteDialog(props: {
           environmentId,
           buildAddProjectRemoteSourceReadiness(
             browseEnvironmentId === environmentId ? sourceControlDiscovery.data : null,
+            browseEnvironmentId === environmentId &&
+              sourceControlDiscovery.isPending &&
+              sourceControlDiscovery.data === null,
           ),
         ),
       });
@@ -1308,6 +1333,7 @@ function OpenCommandPaletteDialog(props: {
       environments,
       pushPaletteView,
       sourceControlDiscovery.data,
+      sourceControlDiscovery.isPending,
     ],
   );
 
@@ -1622,7 +1648,10 @@ function OpenCommandPaletteDialog(props: {
     currentView.groups[0]?.value === sourceSelectionViewValue
       ? buildAddProjectSourceGroups(
           addProjectEnvironmentId,
-          buildAddProjectRemoteSourceReadiness(sourceControlDiscovery.data),
+          buildAddProjectRemoteSourceReadiness(
+            sourceControlDiscovery.data,
+            sourceControlDiscovery.isPending && sourceControlDiscovery.data === null,
+          ),
         )
       : (currentView?.groups ?? rootGroups);
 
@@ -1798,6 +1827,87 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
 
+  const selectGithubRepositoryForClone = useCallback(
+    (repository: SourceControlRepositoryInfo, repositoryInput: string) => {
+      if (!addProjectCloneFlow) return;
+      const destinationPath = getDefaultCloneDestinationPath({
+        environmentId: addProjectCloneFlow.environmentId,
+        repositoryNameWithOwner: repository.nameWithOwner,
+        repositoryInput,
+        remoteUrl: repository.url,
+      });
+      setAddProjectCloneFlow({
+        step: "confirm",
+        environmentId: addProjectCloneFlow.environmentId,
+        source: addProjectCloneFlow.source,
+        repositoryInput,
+        repository,
+        remoteUrl: repository.url,
+      });
+      setGithubSearchResults([]);
+      setHighlightedItemValue(null);
+      setQuery(destinationPath);
+      setBrowseGeneration((generation) => generation + 1);
+    },
+    [addProjectCloneFlow],
+  );
+
+  useEffect(() => {
+    if (
+      addProjectCloneFlow?.step !== "repository" ||
+      addProjectCloneFlow.source !== "github" ||
+      !browseEnvironmentId
+    ) {
+      setGithubSearchResults([]);
+      setIsGithubSearchPending(false);
+      return;
+    }
+
+    if (
+      deferredRepositoryQuery.length === 0 ||
+      parseGitHubRepositoryLocator(deferredRepositoryQuery) !== null
+    ) {
+      setGithubSearchResults([]);
+      setIsGithubSearchPending(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsGithubSearchPending(true);
+    const handle = window.setTimeout(() => {
+      void searchGitHubRepositories({
+        environmentId: addProjectCloneFlow.environmentId,
+        input: {
+          provider: "github",
+          query: deferredRepositoryQuery,
+          limit: 10,
+          ownerOnly: githubSearchOwnerOnly,
+        },
+      }).then((result) => {
+        if (cancelled) return;
+        setIsGithubSearchPending(false);
+        if (result._tag === "Success") {
+          setGithubSearchResults(result.value.repositories);
+          return;
+        }
+        if (!isAtomCommandInterrupted(result)) {
+          setGithubSearchResults([]);
+        }
+      });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [
+    addProjectCloneFlow,
+    browseEnvironmentId,
+    deferredRepositoryQuery,
+    githubSearchOwnerOnly,
+    searchGitHubRepositories,
+  ]);
+
   function getDefaultCloneDestinationPath(input: {
     readonly environmentId: EnvironmentId;
     readonly repositoryNameWithOwner?: string | null;
@@ -1837,6 +1947,33 @@ function OpenCommandPaletteDialog(props: {
       }
 
       const provider = remoteProjectSourceProvider(addProjectCloneFlow.source);
+      if (provider === "github" && parseGitHubRepositoryLocator(rawRepository) === null) {
+        if (isGithubSearchPending) {
+          return;
+        }
+        if (githubSearchResults.length === 1) {
+          selectGithubRepositoryForClone(githubSearchResults[0]!, rawRepository);
+          return;
+        }
+        if (githubSearchResults.length > 1) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Repository lookup failed",
+              description: "Select a repository from the search results below.",
+            }),
+          );
+          return;
+        }
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Repository lookup failed",
+            description: "No matching GitHub repositories. Try another name or use owner/repo.",
+          }),
+        );
+        return;
+      }
       if (!provider) {
         const destinationPath = getDefaultCloneDestinationPath({
           environmentId: addProjectCloneFlow.environmentId,
@@ -1878,24 +2015,7 @@ function OpenCommandPaletteDialog(props: {
         }
         return;
       }
-      const repository = lookupResult.value;
-      const destinationPath = getDefaultCloneDestinationPath({
-        environmentId: addProjectCloneFlow.environmentId,
-        repositoryNameWithOwner: repository.nameWithOwner,
-        repositoryInput: rawRepository,
-        remoteUrl: repository.sshUrl,
-      });
-      setAddProjectCloneFlow({
-        step: "confirm",
-        environmentId: addProjectCloneFlow.environmentId,
-        source: addProjectCloneFlow.source,
-        repositoryInput: rawRepository,
-        repository,
-        remoteUrl: repository.sshUrl,
-      });
-      setHighlightedItemValue(null);
-      setQuery(destinationPath);
-      setBrowseGeneration((generation) => generation + 1);
+      selectGithubRepositoryForClone(lookupResult.value, rawRepository);
       return;
     }
 
@@ -1935,11 +2055,19 @@ function OpenCommandPaletteDialog(props: {
     }
 
     setIsRemoteProjectCloning(true);
+    const cloneProvider =
+      addProjectCloneFlow.repository?.provider ??
+      remoteProjectSourceProvider(addProjectCloneFlow.source);
     const cloneResult = await cloneRepository({
       environmentId: addProjectCloneFlow.environmentId,
       input: {
-        remoteUrl: addProjectCloneFlow.remoteUrl,
+        remoteUrl: addProjectCloneFlow.repository?.url ?? addProjectCloneFlow.remoteUrl,
         destinationPath,
+        ...(cloneProvider ? { provider: cloneProvider } : {}),
+        ...(addProjectCloneFlow.repository
+          ? { repository: addProjectCloneFlow.repository.nameWithOwner }
+          : {}),
+        ...(cloneProvider === "github" ? { protocol: "https" as const } : {}),
       },
     });
     setIsRemoteProjectCloning(false);
@@ -2028,9 +2156,37 @@ function OpenCommandPaletteDialog(props: {
     };
   }, [addProjectCloneFlow]);
 
+  const githubRepositorySearchGroups = useMemo((): CommandPaletteView["groups"] => {
+    if (addProjectCloneFlow?.step !== "repository" || addProjectCloneFlow.source !== "github") {
+      return [];
+    }
+    if (githubSearchResults.length === 0) {
+      return [];
+    }
+    return [
+      {
+        label: "Repositories",
+        items: githubSearchResults.map(
+          (repository): CommandPaletteActionItem => ({
+            kind: "action",
+            value: `github-search:${repository.nameWithOwner}`,
+            searchTerms: [repository.nameWithOwner, repository.url],
+            title: repository.nameWithOwner,
+            description: repository.url,
+            icon: <GitHubIcon className={ITEM_ICON_CLASS} />,
+            keepOpen: true,
+            run: async () => {
+              selectGithubRepositoryForClone(repository, repository.nameWithOwner);
+            },
+          }),
+        ),
+      },
+    ];
+  }, [addProjectCloneFlow, githubSearchResults, selectGithubRepositoryForClone]);
+
   let displayedGroups: CommandPaletteView["groups"] = filteredGroups;
   if (addProjectCloneFlow?.step === "repository") {
-    displayedGroups = [];
+    displayedGroups = githubRepositorySearchGroups;
   } else if (addProjectCloneFlow?.step === "confirm") {
     displayedGroups = relativePathNeedsActiveProject ? [] : cloneDestinationBrowseGroups;
   } else if (isBrowsing) {
@@ -2064,11 +2220,18 @@ function OpenCommandPaletteDialog(props: {
       : "Add";
   const addShortcutLabel = hasHighlightedBrowseItem ? `${submitModifierLabel} Enter` : "Enter";
   const remoteProjectButtonLabel = addProjectCloneFlow
-    ? addProjectCloneFlow.source === "url"
-      ? "Continue"
-      : "Lookup"
+    ? isRemoteProjectCloning
+      ? "Cloning…"
+      : isRemoteProjectLookingUp
+        ? "Looking up…"
+        : isGithubSearchPending && addProjectCloneFlow.source === "github"
+          ? "Searching…"
+          : addProjectCloneFlow.source === "url"
+            ? "Continue"
+            : "Lookup"
     : null;
-  const isRemoteProjectPending = isRemoteProjectLookingUp || isRemoteProjectCloning;
+  const isRemoteProjectPending =
+    isRemoteProjectLookingUp || isRemoteProjectCloning || isGithubSearchPending;
   const canSubmitRemoteProjectFlow =
     addProjectCloneFlow?.step === "repository" &&
     query.trim().length > 0 &&
@@ -2134,6 +2297,15 @@ function OpenCommandPaletteDialog(props: {
 
     if (addProjectCloneFlow?.step === "repository" && event.key === "Enter") {
       event.preventDefault();
+      if (highlightedItemValue?.startsWith("github-search:")) {
+        const matchingItem = displayedGroups
+          .flatMap((group) => group.items)
+          .find((item) => item.value === highlightedItemValue);
+        if (matchingItem?.kind === "action") {
+          executeItem(matchingItem);
+          return;
+        }
+      }
       void submitAddProjectCloneFlow();
       return;
     }
@@ -2316,7 +2488,7 @@ function OpenCommandPaletteDialog(props: {
             />
           }
         >
-          <span>{isRemoteProjectPending ? "Working" : remoteProjectButtonLabel}</span>
+          <span>{remoteProjectButtonLabel}</span>
           <KbdGroup className="pointer-events-none -me-0.5 items-center gap-1">
             <Kbd>Enter</Kbd>
           </KbdGroup>
@@ -2358,7 +2530,7 @@ function OpenCommandPaletteDialog(props: {
           }
         >
           <span>
-            {isCloneDestinationStep && isRemoteProjectPending ? "Cloning" : submitActionLabel}
+            {isCloneDestinationStep && isRemoteProjectCloning ? "Cloning…" : submitActionLabel}
           </span>
           <KbdGroup className="pointer-events-none -me-0.5 items-center gap-1">
             <Kbd>{hasHighlightedBrowseItem ? `${submitModifierLabel} Enter` : "Enter"}</Kbd>
@@ -2377,19 +2549,33 @@ function OpenCommandPaletteDialog(props: {
         ? "Select"
         : undefined;
 
-  const footerTrailing = canOpenProjectFromFileManager ? (
-    <Button
-      variant="ghost"
-      size="xs"
-      className="h-auto px-2 text-muted-foreground text-xs hover:bg-transparent hover:text-foreground"
-      disabled={isPickingProjectFolder}
-      onClick={() => {
-        void handleOpenProjectFromFileManager();
-      }}
-    >
-      {`Open in ${fileManagerName}`}
-    </Button>
-  ) : null;
+  const footerTrailing =
+    addProjectCloneFlow?.step === "repository" && addProjectCloneFlow.source === "github" ? (
+      <label className="flex cursor-pointer items-center gap-2 text-muted-foreground text-xs">
+        <Switch
+          checked={githubSearchOwnerOnly}
+          onCheckedChange={setGithubSearchOwnerOnly}
+          aria-label="Search my GitHub repositories only"
+        />
+        <span>
+          {connectedGitHubAccount
+            ? `My repos (${connectedGitHubAccount})`
+            : "My repositories only"}
+        </span>
+      </label>
+    ) : canOpenProjectFromFileManager ? (
+      <Button
+        variant="ghost"
+        size="xs"
+        className="h-auto px-2 text-muted-foreground text-xs hover:bg-transparent hover:text-foreground"
+        disabled={isPickingProjectFolder}
+        onClick={() => {
+          void handleOpenProjectFromFileManager();
+        }}
+      >
+        {`Open in ${fileManagerName}`}
+      </Button>
+    ) : null;
 
   return (
     <CommandPaletteContent
@@ -2464,7 +2650,15 @@ function OpenCommandPaletteDialog(props: {
               emptyStateMessage:
                 addProjectCloneFlow.source === "url"
                   ? "Enter a Git clone URL and press Enter to continue."
-                  : "Enter a repository path and press Enter to look it up.",
+                  : isGithubSearchPending
+                    ? "Searching GitHub repositories…"
+                    : githubSearchResults.length > 0
+                      ? "Select a repository below or enter owner/repo."
+                      : githubSearchOwnerOnly
+                        ? connectedGitHubAccount
+                          ? `Search your repositories on ${connectedGitHubAccount} or enter owner/repo.`
+                          : "Search your GitHub repositories or enter owner/repo."
+                        : "Search all GitHub repositories or enter owner/repo.",
             }
           : addProjectCloneFlow?.step === "confirm"
             ? { emptyStateMessage: "Choose a destination path and press Enter to clone." }

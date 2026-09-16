@@ -1,11 +1,15 @@
 import { useAtomValue } from "@effect/atom-react";
-import { groupBackgroundApps } from "@t3tools/client-runtime/state/background-apps";
+import {
+  backgroundAppProgressHint,
+  backgroundAppStatusLabel,
+  groupBackgroundApps,
+  isBackgroundAppTransitionalStatus,
+} from "@t3tools/client-runtime/state/background-apps";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  DISCOVERED_LISTENER_TERMINAL_ID,
   isUnownedDiscoveredApp,
   type BackgroundAppLogEvent,
   type BackgroundAppSnapshot,
@@ -19,6 +23,11 @@ import { backgroundAppEnvironment } from "~/state/backgroundApps";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import {
+  backgroundAppLogPlaceholder,
+  backgroundAppsHeaderSummary,
+  shouldRefreshBackgroundAppsFromEvent,
+} from "./BackgroundAppsPanel.logic";
 import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 
@@ -50,6 +59,14 @@ function capabilityHint(app: BackgroundAppSnapshot): string | null {
   return null;
 }
 
+function restartLabel(busy: boolean): string {
+  return busy ? "Restarting…" : "Restart";
+}
+
+function stopLabel(busy: boolean): string {
+  return busy ? "Stopping…" : "Stop";
+}
+
 function AppLogs(props: { environmentId: ScopedThreadRef["environmentId"]; appId: string }) {
   const logsAtom = useMemo(
     () =>
@@ -71,8 +88,15 @@ function AppLogs(props: { environmentId: ScopedThreadRef["environmentId"]; appId
   }, [event]);
 
   return (
-    <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">
-      {text || "Waiting for output…"}
+    <pre
+      aria-live="polite"
+      className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed"
+    >
+      {text ||
+        backgroundAppLogPlaceholder({
+          connected: event._tag === "Success",
+          hasOutput: false,
+        })}
     </pre>
   );
 }
@@ -81,6 +105,7 @@ function AppCard(props: {
   app: BackgroundAppSnapshot;
   environmentId: ScopedThreadRef["environmentId"];
   expanded: boolean;
+  busyKind: "stop" | "restart" | null;
   onToggleLogs: () => void;
   onOpenPreview: (url: string) => void;
   onRestart: () => void;
@@ -88,8 +113,13 @@ function AppCard(props: {
 }) {
   const { app } = props;
   const previewUrl = app.previewUrl ?? app.endpoints[0]?.url ?? null;
-  const hint = capabilityHint(app);
+  const hint = capabilityHint(app) ?? backgroundAppProgressHint(app);
   const uptime = app.startedAt ? formatRelativeTimeLabel(app.startedAt) : null;
+  const transitional = isBackgroundAppTransitionalStatus(app.status);
+  const restartBusy = props.busyKind === "restart";
+  const stopBusy = props.busyKind === "stop";
+  const restartDisabled = props.busyKind !== null || transitional;
+  const stopDisabled = props.busyKind !== null || app.status === "stopping";
 
   return (
     <section className="rounded-lg border bg-card p-3">
@@ -110,7 +140,9 @@ function AppCard(props: {
               : ""}
           </p>
         </div>
-        <span className="shrink-0 capitalize text-[11px] text-muted-foreground">{app.status}</span>
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {backgroundAppStatusLabel(app.status)}
+        </span>
       </div>
       {app.endpoints.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -133,15 +165,15 @@ function AppCard(props: {
           </Button>
         ) : null}
         {app.capabilities.canRestart ? (
-          <Button size="xs" variant="outline" onClick={props.onRestart}>
+          <Button size="xs" variant="outline" disabled={restartDisabled} onClick={props.onRestart}>
             <RotateCcw className="size-3" />
-            Restart
+            {restartLabel(restartBusy)}
           </Button>
         ) : null}
         {app.capabilities.canStop ? (
-          <Button size="xs" variant="outline" onClick={props.onStop}>
+          <Button size="xs" variant="outline" disabled={stopDisabled} onClick={props.onStop}>
             <Square className="size-3" />
-            Stop
+            {stopLabel(stopBusy)}
           </Button>
         ) : null}
         {app.capabilities.canReadLogs ? (
@@ -185,24 +217,26 @@ export function BackgroundAppsPanel(props: {
   const restart = useAtomCommand(backgroundAppEnvironment.restart, { reportFailure: false });
   const [expandedAppId, setExpandedAppId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<{
+    readonly appId: string;
+    readonly kind: "stop" | "restart";
+  } | null>(null);
 
   useEffect(() => {
-    if (
-      latestEvent._tag === "Success" &&
-      latestEvent.value.snapshot.threadId === props.threadRef.threadId ||
-        latestEvent.value.snapshot.terminalId === DISCOVERED_LISTENER_TERMINAL_ID
-    ) {
+    if (shouldRefreshBackgroundAppsFromEvent(latestEvent, props.threadRef.threadId)) {
       list.refresh();
     }
   }, [latestEvent, list.refresh, props.threadRef.threadId]);
 
   const runAction = async (kind: "stop" | "restart", appId: string) => {
     setActionError(null);
+    setBusyAction({ appId, kind });
     const command = kind === "stop" ? stop : restart;
     const result = await command({
       environmentId: props.threadRef.environmentId,
       input: { appId },
     });
+    setBusyAction(null);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       setActionError(error instanceof Error ? error.message : `Failed to ${kind} app.`);
@@ -212,6 +246,7 @@ export function BackgroundAppsPanel(props: {
 
   const apps = list.data?.apps ?? [];
   const grouped = groupBackgroundApps(apps);
+  const firstLoad = list.isPending && apps.length === 0;
 
   const renderCard = (app: BackgroundAppSnapshot) => (
     <AppCard
@@ -219,6 +254,7 @@ export function BackgroundAppsPanel(props: {
       app={app}
       environmentId={props.threadRef.environmentId}
       expanded={expandedAppId === app.id}
+      busyKind={busyAction?.appId === app.id ? busyAction.kind : null}
       onToggleLogs={() => setExpandedAppId(expandedAppId === app.id ? null : app.id)}
       onOpenPreview={props.onOpenPreview}
       onRestart={() => void runAction("restart", app.id)}
@@ -227,12 +263,12 @@ export function BackgroundAppsPanel(props: {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div aria-busy={list.isPending} className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-11 shrink-0 items-center justify-between border-b px-4">
         <div>
           <h2 className="font-medium text-sm">Apps</h2>
           <p className="text-[11px] text-muted-foreground">
-            {apps.length} {apps.length === 1 ? "app" : "apps"} in this thread
+            {backgroundAppsHeaderSummary({ pending: list.isPending, appCount: apps.length })}
           </p>
         </div>
         <Button variant="ghost" size="icon-xs" aria-label="Refresh apps" onClick={list.refresh}>
@@ -243,6 +279,11 @@ export function BackgroundAppsPanel(props: {
         <div className="space-y-3 p-4">
           {list.error ? <p className="text-sm text-destructive">{list.error}</p> : null}
           {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
+          {firstLoad ? (
+            <div className="py-12 text-center" role="status">
+              <p className="text-sm text-muted-foreground">Loading apps…</p>
+            </div>
+          ) : null}
           {!list.isPending && apps.length === 0 ? (
             <div className="py-12 text-center">
               <p className="text-sm">No background apps</p>
@@ -254,7 +295,7 @@ export function BackgroundAppsPanel(props: {
           {grouped.active.length > 0 ? (
             <div className="space-y-2">
               <h3 className="font-medium text-[11px] uppercase tracking-wide text-muted-foreground">
-                Running
+                Active
               </h3>
               {grouped.active.map(renderCard)}
             </div>

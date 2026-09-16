@@ -61,6 +61,14 @@ const credential = (
 });
 
 describe("GitHubCredentialStore", () => {
+  it("encodes clone credentials as an HTTP extraheader without putting the token in argv", () => {
+    const env = GitHubCredentialStore.githubHttpsCloneEnv("gho_secret");
+    assert.strictEqual(env.GIT_CONFIG_COUNT, "1");
+    assert.strictEqual(env.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
+    const encoded = env.GIT_CONFIG_VALUE_0?.slice("AUTHORIZATION: basic ".length) ?? "";
+    assert.strictEqual(Buffer.from(encoded, "base64").toString("utf8"), "x-access-token:gho_secret");
+    assert.strictEqual(env.GIT_TERMINAL_PROMPT, "0");
+  });
   it.effect("isolates tokens by session", () =>
     Effect.gen(function* () {
       const store = yield* GitHubCredentialStore.GitHubCredentialStore;

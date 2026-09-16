@@ -319,6 +319,7 @@ function HostedGitHubAuthGate() {
         managedOAuthAvailable,
       })}
       isConnecting={isConnecting}
+      isChecking={discovery.isPending && discovery.data == null}
       environmentReady={environment !== null}
       errorMessage={errorMessage}
       onConnect={() => void onConnect()}

@@ -4,13 +4,17 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError, SourceControlProviderError } from "@t3tools/contracts";
+import { AuthSessionId, GitCommandError, SourceControlProviderError } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as GitHubCli from "./GitHubCli.ts";
+import * as GitHubCredentialStore from "./GitHubCredentialStore.ts";
+import { GitHubTenant } from "./GitHubTenant.ts";
 import type * as SourceControlProvider from "./SourceControlProvider.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
 import * as SourceControlRepositoryService from "./SourceControlRepositoryService.ts";
@@ -20,6 +24,8 @@ const CLONE_URLS = {
   url: "https://github.com/octocat/t3code",
   sshUrl: "git@github.com:octocat/t3code.git",
 };
+const TENANT_SESSION = AuthSessionId.make("source-control-clone-tenant");
+const TENANT_TOKEN = "gho_test_clone_token";
 
 function makeProvider(
   overrides: Partial<SourceControlProvider.SourceControlProvider["Service"]> = {},
@@ -43,20 +49,59 @@ function makeProvider(
   };
 }
 
-function processOutput(): GitVcsDriver.ExecuteGitResult {
+function processOutput(
+  overrides: Partial<GitVcsDriver.ExecuteGitResult> = {},
+): GitVcsDriver.ExecuteGitResult {
   return {
     exitCode: ChildProcessSpawner.ExitCode(0),
     stdout: "",
     stderr: "",
     stdoutTruncated: false,
     stderrTruncated: false,
+    ...overrides,
   };
+}
+
+function emptyGitHubCredentialStore() {
+  return Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+    get: () => Effect.succeed(Option.none()),
+    set: () => Effect.void,
+    remove: () => Effect.void,
+    createOAuthState: () => Effect.succeed({ state: "unused" }),
+    consumeOAuthState: () => Effect.succeed(Option.none()),
+  });
+}
+
+function tenantGitHubCredentialStore() {
+  return Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+    get: (sessionId) =>
+      Effect.succeed(
+        sessionId === TENANT_SESSION
+          ? Option.some({
+              version: 1 as const,
+              sessionId: TENANT_SESSION,
+              token: TENANT_TOKEN,
+              tokenType: "bearer",
+              scope: "repo",
+              account: "octocat",
+              host: "github.com",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            })
+          : Option.none(),
+      ),
+    set: () => Effect.void,
+    remove: () => Effect.void,
+    createOAuthState: () => Effect.succeed({ state: "unused" }),
+    consumeOAuthState: () => Effect.succeed(Option.none()),
+  });
 }
 
 function makeLayer(input: {
   readonly provider?: SourceControlProvider.SourceControlProvider["Service"];
   readonly git?: Partial<GitVcsDriver.GitVcsDriver["Service"]>;
   readonly fileSystem?: FileSystem.FileSystem;
+  readonly githubCredentials?: Layer.Layer<GitHubCredentialStore.GitHubCredentialStore>;
 }) {
   const serviceLayer = SourceControlRepositoryService.layer.pipe(
     Layer.provide(
@@ -64,6 +109,12 @@ function makeLayer(input: {
         get: () => Effect.succeed(input.provider ?? makeProvider()),
       }),
     ),
+    Layer.provide(
+      Layer.mock(GitHubCli.GitHubCli)({
+        searchRepositories: () => Effect.succeed([]),
+      }),
+    ),
+    Layer.provide(input.githubCredentials ?? emptyGitHubCredentialStore()),
     Layer.provide(
       Layer.mock(GitVcsDriver.GitVcsDriver)({
         execute: () => Effect.succeed(processOutput()),
@@ -145,6 +196,67 @@ it.effect("preserves provider failures without deriving the repository message f
     assert.strictEqual(
       error.message,
       "Source control repository operation lookupRepository failed for github: The source control operation could not be completed.",
+    );
+    assert.strictEqual(error.cause, providerCause);
+  }).pipe(Effect.provide(makeLayer({ provider })));
+});
+
+it.effect("keeps the GitHub invalid-reference message when lookup input is not owner/repo", () => {
+  const providerCause = new SourceControlProviderError({
+    provider: "github",
+    operation: "getRepositoryCloneUrls",
+    cwd: "/workspace",
+    repository: "type",
+    detail: "Enter a GitHub repository as owner/repo or a github.com URL.",
+  });
+  const provider = makeProvider({
+    getRepositoryCloneUrls: () => Effect.fail(providerCause),
+  });
+
+  return Effect.gen(function* () {
+    const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+    const error = yield* Effect.flip(
+      service.lookupRepository({
+        provider: "github",
+        repository: "type",
+        cwd: "/workspace",
+      }),
+    );
+
+    assert.strictEqual(
+      error.detail,
+      "Enter a GitHub repository as owner/repo or a github.com URL.",
+    );
+    assert.strictEqual(error.cause, providerCause);
+  }).pipe(Effect.provide(makeLayer({ provider })));
+});
+
+it.effect("keeps the GitHub authentication message when lookup has no credentials", () => {
+  const providerCause = new SourceControlProviderError({
+    provider: "github",
+    operation: "getRepositoryCloneUrls",
+    cwd: "/workspace",
+    repository: "octocat/t3code",
+    detail:
+      "GitHub CLI is not authenticated. Connect GitHub in Settings, or run `gh auth login` on the server.",
+  });
+  const provider = makeProvider({
+    getRepositoryCloneUrls: () => Effect.fail(providerCause),
+  });
+
+  return Effect.gen(function* () {
+    const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+    const error = yield* Effect.flip(
+      service.lookupRepository({
+        provider: "github",
+        repository: "octocat/t3code",
+        cwd: "/workspace",
+      }),
+    );
+
+    assert.strictEqual(
+      error.detail,
+      "GitHub CLI is not authenticated. Connect GitHub in Settings, or run `gh auth login` on the server.",
     );
     assert.strictEqual(error.cause, providerCause);
   }).pipe(Effect.provide(makeLayer({ provider })));
@@ -269,6 +381,105 @@ it.effect("preserves destination probe failures instead of treating them as miss
     ),
   );
 });
+
+it.effect("clones GitHub repositories over HTTPS with the tenant token", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const parent = yield* fs.makeTempDirectoryScoped({
+      prefix: "t3-source-control-clone-token-",
+    });
+    const destinationPath = `${parent}/t3code`;
+    const cloneCalls: Array<{
+      cwd: string;
+      args: ReadonlyArray<string>;
+      env?: NodeJS.ProcessEnv;
+    }> = [];
+
+    const result = yield* Effect.gen(function* () {
+      const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+      return yield* service.cloneRepository({
+        remoteUrl: CLONE_URLS.sshUrl,
+        destinationPath,
+      });
+    }).pipe(
+      Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),
+      Effect.provide(
+        makeLayer({
+          githubCredentials: tenantGitHubCredentialStore(),
+          git: {
+            execute: (input) =>
+              Effect.sync(() => {
+                cloneCalls.push({ cwd: input.cwd, args: input.args, env: input.env });
+                return processOutput();
+              }),
+          },
+        }),
+      ),
+    );
+
+    assert.deepStrictEqual(result, {
+      cwd: destinationPath,
+      remoteUrl: "https://github.com/octocat/t3code.git",
+      repository: null,
+    });
+    assert.deepStrictEqual(
+      cloneCalls.map((call) => ({ cwd: call.cwd, args: call.args })),
+      [
+        {
+          cwd: parent,
+          args: ["clone", "https://github.com/octocat/t3code.git", "t3code"],
+        },
+        {
+          cwd: destinationPath,
+          args: ["remote", "set-url", "origin", "https://github.com/octocat/t3code.git"],
+        },
+      ],
+    );
+    assert.strictEqual(
+      cloneCalls[0]?.env?.GIT_CONFIG_KEY_0,
+      "http.https://github.com/.extraheader",
+    );
+    assert.match(cloneCalls[0]?.env?.GIT_CONFIG_VALUE_0 ?? "", /^AUTHORIZATION: basic /);
+    assert.ok(!cloneCalls[0]?.args.includes(TENANT_TOKEN));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("surfaces GitHub SSH clone failures instead of a generic error", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const parent = yield* fs.makeTempDirectoryScoped({
+      prefix: "t3-source-control-clone-ssh-fail-",
+    });
+    const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+    const error = yield* Effect.flip(
+      service.cloneRepository({
+        remoteUrl: CLONE_URLS.sshUrl,
+        destinationPath: `${parent}/t3code`,
+      }),
+    );
+
+    assert.strictEqual(error.operation, "cloneRepository");
+    assert.strictEqual(
+      error.detail,
+      "Could not clone that GitHub repository. Connect GitHub in Settings, then try again.",
+    );
+  }).pipe(
+    Effect.provide(
+      makeLayer({
+        git: {
+          execute: () =>
+            Effect.succeed(
+              processOutput({
+                exitCode: ChildProcessSpawner.ExitCode(128),
+                stderr:
+                  "Permission denied (publickey).\nfatal: Could not read from remote repository.\n",
+              }),
+            ),
+        },
+      }),
+    ),
+  ),
+);
 
 it.effect("publishes by creating the repository, adding a remote, and pushing upstream", () => {
   const createCalls: Array<{ cwd: string; repository: string; visibility: string }> = [];

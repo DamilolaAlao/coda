@@ -90,6 +90,7 @@ import { resolvePathLinkTarget } from "~/terminal-links";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
+import { resolveSourceControlProviderReadiness } from "./settings/SourceControlSettings.logic";
 import { openPullRequestLink } from "~/lib/openPullRequestLink";
 
 interface GitActionsControlProps {
@@ -218,29 +219,14 @@ function isPublishProviderKind(
 
 function getPublishProviderReadiness(input: {
   provider: PublishProviderKind;
+  pending: boolean;
   sourceControlProviders: ReadonlyArray<SourceControlProviderDiscoveryItem>;
-}): { readonly ready: boolean; readonly hint: string | null } {
-  const discovered = input.sourceControlProviders.find(
-    (provider) => provider.kind === input.provider,
-  );
-  if (!discovered) {
-    return {
-      ready: false,
-      hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
-    };
-  }
-  if (discovered.status !== "available") {
-    return { ready: false, hint: discovered.installHint };
-  }
-  if (discovered.auth.status === "unauthenticated") {
-    return {
-      ready: false,
-      hint:
-        Option.getOrNull(discovered.auth.detail) ??
-        `${discovered.label} is not authenticated. Open Settings -> Source Control for setup guidance.`,
-    };
-  }
-  return { ready: true, hint: null };
+}): { readonly ready: boolean; readonly pending: boolean; readonly hint: string | null } {
+  return resolveSourceControlProviderReadiness({
+    pending: input.pending,
+    label: publishProviderOption(input.provider).label,
+    provider: input.sourceControlProviders.find((provider) => provider.kind === input.provider),
+  });
 }
 
 function formatElapsedDescription(startedAtMs: number | null): string | undefined {
@@ -425,16 +411,21 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
   }, [sourceControlDiscovery.data]);
   const publishProviderReadiness = useMemo(() => {
     const sourceControlProviders = sourceControlDiscovery.data?.sourceControlProviders ?? [];
+    const pending = sourceControlDiscovery.isPending && sourceControlDiscovery.data === null;
     return Object.fromEntries(
       PUBLISH_PROVIDER_OPTIONS.map((option) => [
         option.value,
         getPublishProviderReadiness({
           provider: option.value,
+          pending,
           sourceControlProviders,
         }),
       ]),
-    ) as Record<PublishProviderKind, { readonly ready: boolean; readonly hint: string | null }>;
-  }, [sourceControlDiscovery.data]);
+    ) as Record<
+      PublishProviderKind,
+      { readonly ready: boolean; readonly pending: boolean; readonly hint: string | null }
+    >;
+  }, [sourceControlDiscovery.data, sourceControlDiscovery.isPending]);
   const hasReadyPublishProvider = useMemo(
     () => PUBLISH_PROVIDER_OPTIONS.some((option) => publishProviderReadiness[option.value].ready),
     [publishProviderReadiness],
@@ -643,28 +634,32 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                             {option.label}
                           </span>
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <Button
-                                  variant="outline"
-                                  size="xs"
-                                  className="h-5 rounded-[.25rem] px-1.5 text-[10px] text-warning-foreground"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    openSourceControlSettings();
-                                  }}
-                                >
-                                  Setup Required
-                                </Button>
-                              }
-                            />
-                            <TooltipPopup side="top" align="end" className="max-w-72">
-                              {readiness.hint ??
-                                "Open Settings -> Source Control to configure this provider."}
-                            </TooltipPopup>
-                          </Tooltip>
+                          {readiness.pending ? (
+                            <span className="text-[10px] text-muted-foreground">Loading…</span>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <Button
+                                    variant="outline"
+                                    size="xs"
+                                    className="h-5 rounded-[.25rem] px-1.5 text-[10px] text-warning-foreground"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      openSourceControlSettings();
+                                    }}
+                                  >
+                                    Setup Required
+                                  </Button>
+                                }
+                              />
+                              <TooltipPopup side="top" align="end" className="max-w-72">
+                                {readiness.hint ??
+                                  "Open Settings -> Source Control to configure this provider."}
+                              </TooltipPopup>
+                            </Tooltip>
+                          )}
                         </div>
                       );
                     }

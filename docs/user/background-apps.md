@@ -27,7 +27,7 @@ Apps**.
 
 For each app you can:
 
-- See status, uptime, and listening ports
+- See status (**Starting…**, **Running**, **Stopping…**, **Stopped**, **Failed**), uptime, and listening ports
 - Read a bounded log (the same output the hidden terminal kept)
 - Open the preview when a URL is known
 - Restart a managed app with the original command

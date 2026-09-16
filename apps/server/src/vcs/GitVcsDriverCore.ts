@@ -30,6 +30,11 @@ import { dedupeRemoteBranchesWithLocalMatches, normalizeGitRemoteUrl } from "@t3
 import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
+import {
+  GitHubCredentialStore,
+  githubHttpsCloneEnv,
+  resolveGitHubProcessCredential,
+} from "../sourceControl/GitHubCredentialStore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 import {
   parseRemoteNames,
@@ -72,6 +77,8 @@ const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
   SSH_ASKPASS: "",
   SSH_ASKPASS_REQUIRE: "never",
 } satisfies NodeJS.ProcessEnv);
+const FALLBACK_GIT_IDENTITY_NAME = "Coda";
+const FALLBACK_GIT_IDENTITY_EMAIL = "t3code@users.noreply.github.com";
 const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 const GIT_LIST_BRANCHES_DEFAULT_LIMIT = 100;
 const NON_REPOSITORY_STATUS_DETAILS = Object.freeze<GitVcsDriver.GitStatusDetails>({
@@ -419,6 +426,105 @@ function isMissingGitCwdError(error: GitCommandError): boolean {
 function isNonRepositoryGitStderr(stderr: string): boolean {
   return stderr.toLowerCase().includes("not a git repository");
 }
+
+const GIT_NETWORK_SUBCOMMANDS = new Set(["clone", "fetch", "ls-remote", "pull", "push"]);
+
+function gitSubcommand(args: ReadonlyArray<string>): string | null {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === undefined) {
+      continue;
+    }
+    if (arg === "-c" || arg === "-C") {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      continue;
+    }
+    return arg;
+  }
+  return null;
+}
+
+function isGitNetworkCommand(args: ReadonlyArray<string>): boolean {
+  const command = gitSubcommand(args);
+  return command !== null && GIT_NETWORK_SUBCOMMANDS.has(command);
+}
+
+function gitCommitIdentityEnv(
+  name: string | null,
+  email: string | null,
+): NodeJS.ProcessEnv | undefined {
+  if (name !== null && email !== null) {
+    return undefined;
+  }
+  return {
+    GIT_AUTHOR_NAME: name ?? FALLBACK_GIT_IDENTITY_NAME,
+    GIT_AUTHOR_EMAIL: email ?? FALLBACK_GIT_IDENTITY_EMAIL,
+    GIT_COMMITTER_NAME: name ?? FALLBACK_GIT_IDENTITY_NAME,
+    GIT_COMMITTER_EMAIL: email ?? FALLBACK_GIT_IDENTITY_EMAIL,
+  };
+}
+
+function publicGitCommitFailureDetail(stderr: string): string {
+  const detail = stderr.toLowerCase();
+  if (detail.includes("please tell me who you are") || detail.includes("empty ident")) {
+    return "Git needs a user name and email before committing.";
+  }
+  if (
+    detail.includes("gpg failed") ||
+    detail.includes("signing failed") ||
+    detail.includes("secret key not available")
+  ) {
+    return "Git could not GPG-sign that commit.";
+  }
+  if (detail.includes("nothing to commit")) {
+    return "There are no changes to commit.";
+  }
+  if (
+    detail.includes("pre-commit") ||
+    detail.includes("commit-msg") ||
+    detail.includes("husky") ||
+    detail.includes("hook declined") ||
+    detail.includes("failed to hook") ||
+    detail.includes("failed to run")
+  ) {
+    return "A Git hook rejected the commit.";
+  }
+  return "Git command exited with a non-zero status.";
+}
+
+function publicGitNetworkFailureDetail(stderr: string): string {
+  const detail = stderr.toLowerCase();
+  if (
+    detail.includes("permission denied") ||
+    detail.includes("could not read from remote") ||
+    detail.includes("authentication failed") ||
+    detail.includes("invalid username or token") ||
+    detail.includes("could not read username") ||
+    detail.includes("host key verification failed") ||
+    detail.includes("no such identity")
+  ) {
+    return "Could not authenticate to GitHub. Connect GitHub in Settings, then try again.";
+  }
+  if (
+    detail.includes("non-fast-forward") ||
+    detail.includes("failed to push some refs") ||
+    detail.includes("updates were rejected")
+  ) {
+    return "The remote rejected that push. Fetch and retry.";
+  }
+  if (
+    detail.includes("repository not found") ||
+    detail.includes("http 404") ||
+    detail.includes("http 403")
+  ) {
+    return "Repository not found or this GitHub account cannot access it.";
+  }
+  return "Git command exited with a non-zero status.";
+}
+
 function isUnbornHeadStderr(stderr: string): boolean {
   const normalized = stderr.toLowerCase();
   return (
@@ -729,6 +835,23 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               }),
           ),
         );
+        const githubAuthEnv = yield* Effect.gen(function* () {
+          if (!isGitNetworkCommand(commandInput.args)) {
+            return {} as NodeJS.ProcessEnv;
+          }
+          const store = yield* Effect.serviceOption(GitHubCredentialStore);
+          if (Option.isNone(store)) {
+            return {};
+          }
+          const credential = yield* resolveGitHubProcessCredential(
+            store.value,
+            commandInput.cwd,
+          );
+          if (Option.isNone(credential)) {
+            return {};
+          }
+          return githubHttpsCloneEnv(credential.value.token);
+        });
         const child = yield* commandSpawner
           .spawn(
             ChildProcess.make("git", commandInput.args, {
@@ -736,6 +859,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               env: {
                 ...process.env,
                 ...input.env,
+                ...githubAuthEnv,
                 ...trace2Monitor.env,
               },
             }),
@@ -878,7 +1002,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         return Effect.fail(
           new GitCommandError({
             ...gitCommandContext({ operation, cwd, args }),
-            detail: options.fallbackErrorDetail ?? "Git command exited with a non-zero status.",
+            detail:
+              options.fallbackErrorDetail ??
+              (isGitNetworkCommand(args)
+                ? publicGitNetworkFailureDetail(`${result.stdout}\n${result.stderr}`)
+                : "Git command exited with a non-zero status."),
             ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
             stdoutLength: result.stdout.length,
             stderrLength: result.stderr.length,
@@ -1874,10 +2002,50 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             onStderrLine: (line: string) =>
               options.progress?.onOutputLine?.({ stream: "stderr", text: line }) ?? Effect.void,
           };
-    yield* executeGit("GitVcsDriver.commit.commit", cwd, args, {
+    const configuredName = yield* readConfigValue(cwd, "user.name");
+    const configuredEmail = yield* readConfigValue(cwd, "user.email");
+    const identityEnv = gitCommitIdentityEnv(configuredName, configuredEmail);
+    const result = yield* executeGit("GitVcsDriver.commit.commit", cwd, args, {
+      allowNonZeroExit: true,
+      ...(identityEnv !== undefined ? { env: identityEnv } : {}),
       ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       ...(progress ? { progress } : {}),
-    }).pipe(Effect.asVoid);
+    });
+    if (result.exitCode !== 0) {
+      let detail = publicGitCommitFailureDetail(result.stderr);
+      if (detail === "Git command exited with a non-zero status.") {
+        const hookPath = yield* runGitStdout(
+          "GitVcsDriver.commit.preCommitHookPath",
+          cwd,
+          ["rev-parse", "--git-path", "hooks/pre-commit"],
+          true,
+        ).pipe(Effect.map((stdout) => stdout.trim()));
+        if (hookPath.length > 0) {
+          const resolvedHookPath = path.isAbsolute(hookPath)
+            ? hookPath
+            : path.resolve(cwd, hookPath);
+          if (yield* fileSystem.exists(resolvedHookPath)) {
+            detail = "A Git hook rejected the commit.";
+          }
+        }
+      }
+      yield* Effect.logWarning("git commit failed", {
+        cwd,
+        exitCode: result.exitCode,
+        detail,
+      });
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.commit.commit",
+          cwd,
+          args,
+        }),
+        detail,
+        ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+        stdoutLength: result.stdout.length,
+        stderrLength: result.stderr.length,
+      });
+    }
     const commitSha = yield* runGitStdout("GitVcsDriver.commit.revParseHead", cwd, [
       "rev-parse",
       "HEAD",

@@ -34,6 +34,17 @@ zerops:
         - npm rebuild node-pty --prefix /home/zerops --foreground-scripts || true
         - chmod +x install-hermes.sh hermes-wrapper.sh
         - ./install-hermes.sh
+        - mkdir -p /home/zerops/bin
+        - |
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) cfarch=amd64 ;;
+            aarch64|arm64) cfarch=arm64 ;;
+            *) echo "unsupported arch $arch" >&2; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/2025.8.1/cloudflared-linux-${cfarch}" -o /home/zerops/bin/cloudflared
+          chmod +x /home/zerops/bin/cloudflared
+          /home/zerops/bin/cloudflared --version
       ports:
         - port: 3773
           httpSupport: true

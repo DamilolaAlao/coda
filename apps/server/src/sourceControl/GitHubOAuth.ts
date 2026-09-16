@@ -28,8 +28,8 @@ const GITHUB_OAUTH_SCOPES = "repo read:org workflow gist";
 
 const GitHubOAuthTokenResponse = Schema.Struct({
   access_token: Schema.String,
-  token_type: Schema.String,
-  scope: Schema.String,
+  token_type: Schema.optionalKey(Schema.String),
+  scope: Schema.optionalKey(Schema.String),
 });
 
 const GitHubUserResponse = Schema.Struct({
@@ -278,8 +278,8 @@ const callbackRoute = HttpRouter.add(
       version: 1,
       sessionId: consumed.value.sessionId,
       token: token.access_token,
-      tokenType: token.token_type,
-      scope: token.scope,
+      tokenType: token.token_type ?? "bearer",
+      scope: token.scope ?? "",
       account: user.login,
       host: GitHubCredentialStore.GITHUB_HOST,
       createdAt: now,

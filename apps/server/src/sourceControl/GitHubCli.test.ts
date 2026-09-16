@@ -45,6 +45,21 @@ afterEach(() => {
 });
 
 describe("GitHubCli.layer", () => {
+  it("parses GitHub owner/repo locators from common inputs", () => {
+    assert.deepStrictEqual(GitHubCli.parseGitHubRepositoryLocator("octocat/hello"), {
+      owner: "octocat",
+      repo: "hello",
+    });
+    assert.deepStrictEqual(
+      GitHubCli.parseGitHubRepositoryLocator("https://github.com/octocat/hello.git"),
+      { owner: "octocat", repo: "hello" },
+    );
+    assert.deepStrictEqual(GitHubCli.parseGitHubRepositoryLocator("github.com/octocat/hello"), {
+      owner: "octocat",
+      repo: "hello",
+    });
+  });
+
   it("does not classify a missing cwd as an unavailable gh executable", () => {
     const context = { command: "gh", cwd: "/repo" } as const;
     const missingCwd = new VcsProcessSpawnError({
@@ -305,6 +320,394 @@ describe("GitHubCli.layer", () => {
       });
     }).pipe(Effect.provide(layer)),
   );
+
+  it.effect("looks up repositories over the GitHub API when a tenant token is present", () => {
+    const requested: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested.push(String(input));
+      return Response.json({
+        id: 1,
+        full_name: "octocat/codething-mvp",
+        html_url: "https://github.com/octocat/codething-mvp",
+        private: true,
+        owner: { login: "octocat" },
+      });
+    }) as typeof fetch;
+    const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+      get: (sessionId) =>
+        Effect.succeed(
+          sessionId === TENANT_SESSION
+            ? Option.some({
+                version: 1 as const,
+                sessionId: TENANT_SESSION,
+                token: TENANT_TOKEN,
+                tokenType: "bearer",
+                scope: "repo",
+                account: "octocat",
+                host: "github.com",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              })
+            : Option.none(),
+        ),
+      set: () => Effect.void,
+      remove: () => Effect.void,
+      createOAuthState: () => Effect.succeed({ state: "unused" }),
+      consumeOAuthState: () => Effect.succeed(Option.none()),
+    });
+
+    return Effect.gen(function* () {
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.getRepositoryCloneUrls({
+        cwd: "/repo",
+        repository: "octocat/codething-mvp",
+      });
+
+      assert.deepStrictEqual(result, {
+        nameWithOwner: "octocat/codething-mvp",
+        url: "https://github.com/octocat/codething-mvp",
+        sshUrl: "git@github.com:octocat/codething-mvp.git",
+      });
+      assert.deepStrictEqual(requested, ["https://api.github.com/repos/octocat/codething-mvp"]);
+      expect(mockRun).not.toHaveBeenCalled();
+    }).pipe(
+      Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),
+      Effect.provide(
+        GitHubCli.layer.pipe(
+          Layer.provide(
+            Layer.mock(VcsProcess.VcsProcess)({
+              run: mockRun,
+            }),
+          ),
+          Layer.provide(store),
+        ),
+      ),
+      Effect.ensuring(Effect.sync(() => {
+        globalThis.fetch = originalFetch;
+      })),
+    );
+  });
+
+  it.effect("accepts GitHub repository JSON that omits or nulls clone URL fields", () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      Response.json({
+        id: 1,
+        full_name: "octocat/codething-mvp",
+        html_url: null,
+        clone_url: null,
+        ssh_url: null,
+        private: true,
+        owner: { login: "octocat" },
+      })) as typeof fetch;
+    const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+      get: (sessionId) =>
+        Effect.succeed(
+          sessionId === TENANT_SESSION
+            ? Option.some({
+                version: 1 as const,
+                sessionId: TENANT_SESSION,
+                token: TENANT_TOKEN,
+                tokenType: "bearer",
+                scope: "",
+                account: "octocat",
+                host: "github.com",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              })
+            : Option.none(),
+        ),
+      set: () => Effect.void,
+      remove: () => Effect.void,
+      createOAuthState: () => Effect.succeed({ state: "unused" }),
+      consumeOAuthState: () => Effect.succeed(Option.none()),
+    });
+
+    return Effect.gen(function* () {
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.getRepositoryCloneUrls({
+        cwd: "/repo",
+        repository: "octocat/codething-mvp",
+      });
+
+      assert.deepStrictEqual(result, {
+        nameWithOwner: "octocat/codething-mvp",
+        url: "https://github.com/octocat/codething-mvp",
+        sshUrl: "git@github.com:octocat/codething-mvp.git",
+      });
+    }).pipe(
+      Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),
+      Effect.provide(
+        GitHubCli.layer.pipe(
+          Layer.provide(
+            Layer.mock(VcsProcess.VcsProcess)({
+              run: mockRun,
+            }),
+          ),
+          Layer.provide(store),
+        ),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          globalThis.fetch = originalFetch;
+        }),
+      ),
+    );
+  });
+
+  it.effect("searches repositories over the GitHub API when a tenant token is present", () => {
+    const requested: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested.push(String(input));
+      return Response.json({
+        items: [
+          {
+            full_name: "octocat/codething-mvp",
+            html_url: "https://github.com/octocat/codething-mvp",
+          },
+          {
+            full_name: "octocat/codething-mvp-old",
+            clone_url: "https://github.com/octocat/codething-mvp-old.git",
+          },
+        ],
+      });
+    }) as typeof fetch;
+    const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+      get: (sessionId) =>
+        Effect.succeed(
+          sessionId === TENANT_SESSION
+            ? Option.some({
+                version: 1 as const,
+                sessionId: TENANT_SESSION,
+                token: TENANT_TOKEN,
+                tokenType: "bearer",
+                scope: "",
+                account: "octocat",
+                host: "github.com",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              })
+            : Option.none(),
+        ),
+      set: () => Effect.void,
+      remove: () => Effect.void,
+      createOAuthState: () => Effect.succeed({ state: "unused" }),
+      consumeOAuthState: () => Effect.succeed(Option.none()),
+    });
+
+    return Effect.gen(function* () {
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.searchRepositories({
+        cwd: "/repo",
+        query: "codething",
+        limit: 5,
+      });
+
+      assert.deepStrictEqual(result, [
+        {
+          nameWithOwner: "octocat/codething-mvp",
+          url: "https://github.com/octocat/codething-mvp",
+          sshUrl: "git@github.com:octocat/codething-mvp.git",
+        },
+        {
+          nameWithOwner: "octocat/codething-mvp-old",
+          url: "https://github.com/octocat/codething-mvp-old",
+          sshUrl: "git@github.com:octocat/codething-mvp-old.git",
+        },
+      ]);
+      assert.equal(requested.length, 1);
+      assert.include(requested[0], "search/repositories?q=");
+      assert.include(decodeURIComponent(requested[0]!), "user:octocat");
+      assert.include(requested[0], "codething");
+      expect(mockRun).not.toHaveBeenCalled();
+    }).pipe(
+      Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),
+      Effect.provide(
+        GitHubCli.layer.pipe(
+          Layer.provide(
+            Layer.mock(VcsProcess.VcsProcess)({
+              run: mockRun,
+            }),
+          ),
+          Layer.provide(store),
+        ),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          globalThis.fetch = originalFetch;
+        }),
+      ),
+    );
+  });
+
+  it.effect("can search all of GitHub when owner-only is disabled", () => {
+    const requested: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested.push(String(input));
+      return Response.json({ items: [] });
+    }) as typeof fetch;
+    const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+      get: (sessionId) =>
+        Effect.succeed(
+          sessionId === TENANT_SESSION
+            ? Option.some({
+                version: 1 as const,
+                sessionId: TENANT_SESSION,
+                token: TENANT_TOKEN,
+                tokenType: "bearer",
+                scope: "",
+                account: "octocat",
+                host: "github.com",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              })
+            : Option.none(),
+        ),
+      set: () => Effect.void,
+      remove: () => Effect.void,
+      createOAuthState: () => Effect.succeed({ state: "unused" }),
+      consumeOAuthState: () => Effect.succeed(Option.none()),
+    });
+
+    return Effect.gen(function* () {
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.searchRepositories({
+        cwd: "/repo",
+        query: "codething",
+        ownerOnly: false,
+      });
+
+      assert.equal(requested.length, 1);
+      assert.notInclude(decodeURIComponent(requested[0]!), "user:octocat");
+    }).pipe(
+      Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),
+      Effect.provide(
+        GitHubCli.layer.pipe(
+          Layer.provide(
+            Layer.mock(VcsProcess.VcsProcess)({
+              run: mockRun,
+            }),
+          ),
+          Layer.provide(store),
+        ),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          globalThis.fetch = originalFetch;
+        }),
+      ),
+    );
+  });
+
+  it.effect("surfaces an invalid-reference error for partial repository names", () => {
+    const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+      get: (sessionId) =>
+        Effect.succeed(
+          sessionId === TENANT_SESSION
+            ? Option.some({
+                version: 1 as const,
+                sessionId: TENANT_SESSION,
+                token: TENANT_TOKEN,
+                tokenType: "bearer",
+                scope: "",
+                account: "octocat",
+                host: "github.com",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              })
+            : Option.none(),
+        ),
+      set: () => Effect.void,
+      remove: () => Effect.void,
+      createOAuthState: () => Effect.succeed({ state: "unused" }),
+      consumeOAuthState: () => Effect.succeed(Option.none()),
+    });
+
+    return Effect.gen(function* () {
+      const gh = yield* GitHubCli.GitHubCli;
+      const error = yield* gh
+        .getRepositoryCloneUrls({
+          cwd: "/repo",
+          repository: "type",
+        })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(error._tag, "GitHubRepositoryInvalidReferenceError");
+      assert.include(error.detail, "owner/repo");
+    }).pipe(
+      Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),
+      Effect.provide(
+        GitHubCli.layer.pipe(
+          Layer.provide(
+            Layer.mock(VcsProcess.VcsProcess)({
+              run: mockRun,
+            }),
+          ),
+          Layer.provide(store),
+        ),
+      ),
+    );
+  });
+
+  it.effect("surfaces not-found when GitHub repository lookup returns HTTP 404", () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ message: "Not Found" }), { status: 404 })) as typeof fetch;
+    const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+      get: (sessionId) =>
+        Effect.succeed(
+          sessionId === TENANT_SESSION
+            ? Option.some({
+                version: 1 as const,
+                sessionId: TENANT_SESSION,
+                token: TENANT_TOKEN,
+                tokenType: "bearer",
+                scope: "",
+                account: "octocat",
+                host: "github.com",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              })
+            : Option.none(),
+        ),
+      set: () => Effect.void,
+      remove: () => Effect.void,
+      createOAuthState: () => Effect.succeed({ state: "unused" }),
+      consumeOAuthState: () => Effect.succeed(Option.none()),
+    });
+
+    return Effect.gen(function* () {
+      const gh = yield* GitHubCli.GitHubCli;
+      const error = yield* gh
+        .getRepositoryCloneUrls({
+          cwd: "/repo",
+          repository: "octocat/missing",
+        })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(error._tag, "GitHubRepositoryNotFoundError");
+    }).pipe(
+      Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),
+      Effect.provide(
+        GitHubCli.layer.pipe(
+          Layer.provide(
+            Layer.mock(VcsProcess.VcsProcess)({
+              run: mockRun,
+            }),
+          ),
+          Layer.provide(store),
+        ),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          globalThis.fetch = originalFetch;
+        }),
+      ),
+    );
+  });
 
   it.effect("creates repositories and parses clone URLs from create output", () =>
     Effect.gen(function* () {

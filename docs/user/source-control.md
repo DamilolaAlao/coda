@@ -90,7 +90,29 @@ Run a quick **Rescan** after setting up a new machine or changing credentials.
 3. Verify GitHub shows as authenticated for this client. Use **Disconnect** on the same page to
    remove this client's GitHub account. That does not sign out a host-level `gh auth login`.
 
-You can now clone, publish, and create pull requests.
+You can now clone, publish, create pull requests, and push over HTTPS using this client's
+GitHub sign-in. Hosted Coda servers do not use SSH keys; Connect GitHub is what authenticates
+`git push` and `git fetch`.
+
+### Git author name and email
+
+Coda uses Git's `user.name` and `user.email` for commits.
+
+If those are unset on the machine running Coda (common on a hosted server), commits still
+succeed and are authored as **Coda**. GitHub will not attribute those commits to your account.
+
+To commit as yourself, set them in a Coda terminal on that environment:
+
+```bash
+git config --global user.name "Your Name"
+git config --global user.email "12345678+you@users.noreply.github.com"
+```
+
+Use the noreply address from GitHub → Settings → Emails so GitHub links the commits to you.
+That config lives on the Coda server, not on your laptop.
+
+On a hosted environment this writes to that environment's Git config and applies to every
+project there.
 
 ### For GitLab
 
@@ -153,7 +175,12 @@ Control settings**.
 
 - **Provider shows "Not authenticated"** – Choose **Connect GitHub** in Settings for this client, or run the login command for that provider (e.g. `gh auth login`) in a terminal on the server as a shared fallback, then rescan in Settings
 - **Bitbucket not connecting** – Double-check your environment variables are set in the correct shell profile and the server was restarted
-- **Can't push to a remote** – Verify your Git remote URL matches the provider you've authenticated with (SSH vs HTTPS remotes may need different credentials)
+- **Can't push to a remote** – Connect GitHub in Settings for this client. Hosted Coda pushes
+  over HTTPS with that sign-in; SSH remotes on a server without keys will fail. If GitHub is
+  already connected, fetch and retry in case the remote moved.
+- **Commits show up as Coda** – Set `user.name` and `user.email` in a Coda terminal (see
+  [Git author name and email](#git-author-name-and-email)). Use your GitHub noreply address if
+  you want GitHub to count those commits as yours.
 
 **Need more help?** Check your provider's CLI documentation:
 

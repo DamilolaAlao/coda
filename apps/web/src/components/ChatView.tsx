@@ -1738,7 +1738,7 @@ function ChatViewContent(props: ChatViewProps) {
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );
-  const activeEnvironmentBootstrapComplete = activeEnvironmentShell.data?.snapshot._tag === "Some";
+  const activeEnvironmentBootstrapComplete = activeEnvironmentShell.data?.snapshot?._tag === "Some";
   const activeProjectKey = activeProject
     ? `${activeProject.environmentId}:${activeProject.workspaceRoot}`
     : null;

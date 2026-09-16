@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Ref from "effect/Ref";
@@ -14,8 +15,10 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError, type ReviewDiffFileContentsInput } from "@t3tools/contracts";
+import { AuthSessionId, GitCommandError, type ReviewDiffFileContentsInput } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
+import * as GitHubCredentialStore from "../sourceControl/GitHubCredentialStore.ts";
+import { GitHubTenant } from "../sourceControl/GitHubTenant.ts";
 import { makeGitVcsDriverCore, splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 
@@ -165,6 +168,86 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
       { args: ["rev-parse", "--git-common-dir"], lcAll: "C" },
     ]);
   }).pipe(Effect.provide(layer));
+});
+
+it.effect("attaches the tenant GitHub token to network git commands", () => {
+  const sessionId = AuthSessionId.make("git-network-tenant");
+  const commands: Array<{ readonly args: ReadonlyArray<string>; readonly extraHeader?: string }> =
+    [];
+  const spawner = ChildProcessSpawner.make((command) =>
+    Effect.sync(() => {
+      if (!ChildProcess.isStandardCommand(command)) {
+        return assert.fail("expected a standard Git command");
+      }
+      commands.push({
+        args: command.args,
+        ...(command.options.env?.GIT_CONFIG_KEY_0
+          ? { extraHeader: command.options.env.GIT_CONFIG_KEY_0 }
+          : {}),
+      });
+      return makeSuccessfulHandle("");
+    }),
+  );
+  const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+    get: (id) =>
+      Effect.succeed(
+        id === sessionId
+          ? Option.some({
+              version: 1 as const,
+              sessionId,
+              token: "gho_push_token",
+              tokenType: "bearer",
+              scope: "repo",
+              account: "octocat",
+              host: "github.com",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            })
+          : Option.none(),
+      ),
+    set: () => Effect.void,
+    remove: () => Effect.void,
+    createOAuthState: () => Effect.succeed({ state: "unused" }),
+    consumeOAuthState: () => Effect.succeed(Option.none()),
+  });
+  const nodeServicesLayer = Layer.merge(
+    NodeServices.layer,
+    Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+  );
+  const layer = GitVcsDriver.layer.pipe(
+    Layer.provide(ServerConfigLayer),
+    Layer.provideMerge(nodeServicesLayer),
+    Layer.provideMerge(store),
+  );
+
+  return Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+    yield* driver.execute({
+      operation: "GitVcsDriver.test.push",
+      cwd: "/repo",
+      args: ["push", "-u", "origin", "HEAD"],
+      allowNonZeroExit: true,
+    });
+    yield* driver.execute({
+      operation: "GitVcsDriver.test.commit",
+      cwd: "/repo",
+      args: ["commit", "-m", "local"],
+      allowNonZeroExit: true,
+    });
+
+    assert.deepStrictEqual(commands, [
+      {
+        args: ["push", "-u", "origin", "HEAD"],
+        extraHeader: "http.https://github.com/.extraheader",
+      },
+      {
+        args: ["commit", "-m", "local"],
+      },
+    ]);
+  }).pipe(
+    Effect.provideService(GitHubTenant, { sessionId }),
+    Effect.provide(layer),
+  );
 });
 
 it.effect("invalidates origin remote cache when a driver mutation adds origin", () =>
@@ -1479,6 +1562,62 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         const status = yield* git(cwd, ["status", "--porcelain"]);
         assert.include(status, "?? b.txt");
         assert.notInclude(status, "a.txt");
+      }),
+    );
+
+    it.effect("commits with a fallback identity when git user config is missing", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.initRepo({ cwd });
+        yield* git(cwd, ["config", "--local", "user.useConfigOnly", "true"]);
+        yield* git(cwd, ["config", "--local", "user.name", ""]).pipe(Effect.ignore);
+        yield* git(cwd, ["config", "--local", "user.email", ""]).pipe(Effect.ignore);
+        yield* writeTextFile(cwd, "README.md", "# test\n");
+        yield* git(cwd, ["add", "."]);
+
+        const commit = yield* driver.commit(cwd, "Initial commit", "");
+        assert.match(commit.commitSha, /^[a-f0-9]{40}$/);
+        assert.equal(yield* git(cwd, ["log", "-1", "--pretty=%an"]), "Coda");
+        assert.equal(
+          yield* git(cwd, ["log", "-1", "--pretty=%ae"]),
+          "t3code@users.noreply.github.com",
+        );
+      }),
+    );
+
+    it.effect("keeps the configured git identity when committing", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "note.txt", "note\n");
+        yield* git(cwd, ["add", "note.txt"]);
+
+        yield* driver.commit(cwd, "Add note", "");
+        assert.equal(yield* git(cwd, ["log", "-1", "--pretty=%an"]), "Test");
+        assert.equal(yield* git(cwd, ["log", "-1", "--pretty=%ae"]), "test@test.com");
+      }),
+    );
+
+    it.effect("reports hook rejection instead of a generic git failure", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* writeTextFile(cwd, "hook.txt", "broken\n");
+        yield* git(cwd, ["add", "hook.txt"]);
+        yield* fileSystem.writeFileString(
+          pathService.join(cwd, ".git", "hooks", "pre-commit"),
+          "#!/bin/sh\necho hook: fail >&2\nexit 1\n",
+        );
+        yield* fileSystem.chmod(pathService.join(cwd, ".git", "hooks", "pre-commit"), 0o755);
+
+        const error = yield* Effect.flip(driver.commit(cwd, "Hook should fail", ""));
+        assert.strictEqual(error.detail, "A Git hook rejected the commit.");
+        assert.include(error.message, "GitVcsDriver.commit.commit");
       }),
     );
 

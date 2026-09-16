@@ -6,6 +6,7 @@ import {
   githubAuthSourceLabel,
   GITHUB_OAUTH_MESSAGE_TYPE,
   parseGitHubOAuthCompletionMessage,
+  resolveSourceControlProviderReadiness,
   shouldShowHostedGitHubAuthGate,
 } from "./SourceControlSettings.logic";
 
@@ -41,6 +42,27 @@ describe("GitHub auth presentation", () => {
       }),
     ).toBe(false);
     expect(canDisconnectManagedGitHub(unauthenticated)).toBe(false);
+  });
+
+  it("treats a pending GitHub scan as checking, not setup required", () => {
+    expect(
+      resolveSourceControlProviderReadiness({
+        pending: true,
+        label: "GitHub",
+        provider: undefined,
+      }),
+    ).toEqual({
+      ready: false,
+      pending: true,
+      hint: "Checking GitHub…",
+    });
+    expect(
+      resolveSourceControlProviderReadiness({
+        pending: false,
+        label: "GitHub",
+        provider: undefined,
+      }).pending,
+    ).toBe(false);
   });
 
   it("parses popup completion messages without treating other postMessage traffic as GitHub OAuth", () => {

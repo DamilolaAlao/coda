@@ -60,4 +60,10 @@ if [ -f "$ROOT/vendor/hermes-agent/venv/pyvenv.cfg" ]; then
   sed -i "s|/build/source|$ROOT|g" "$ROOT/vendor/hermes-agent/venv/pyvenv.cfg" || true
 fi
 
+if [ -n "${CLOUDFLARED_TUNNEL_TOKEN:-}" ] && command -v cloudflared >/dev/null 2>&1; then
+  mkdir -p "$DATA_ROOT"
+  nohup cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARED_TUNNEL_TOKEN" \
+    >>"$DATA_ROOT/cloudflared.log" 2>&1 &
+fi
+
 exec node "$ROOT/dist/bin.mjs" serve --host 0.0.0.0 --port "${T3CODE_PORT:-3773}"

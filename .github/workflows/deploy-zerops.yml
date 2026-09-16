@@ -1,0 +1,56 @@
+name: Deploy hosted Zerops stack
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-zerops
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Pack and push stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Pack stack
+        env:
+          T3CODE_PUBLIC_URL: ${{ secrets.T3CODE_PUBLIC_URL }}
+          T3CODE_PAIRING_CODE: ${{ secrets.T3CODE_PAIRING_CODE }}
+        run: |
+          chmod +x deploy/zerops/pack.sh
+          deploy/zerops/pack.sh /tmp/coda-zerops
+
+      - name: Push stack to Zerops
+        env:
+          ZEROPS_TOKEN: ${{ secrets.ZEROPS_TOKEN }}
+        run: |
+          npm install -g @zerops/zcli
+          zcli login "$ZEROPS_TOKEN"
+          zcli service push stack \
+            -P oCKc9yrPSLeJQcLq4fRVag \
+            -S TAp2moJQQOmBwN8VW3Bl2A \
+            --working-dir /tmp/coda-zerops \
+            --no-git \
+            --version-name "${GITHUB_SHA::8}"

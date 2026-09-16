@@ -1,7 +1,9 @@
 import type {
   SourceControlGitHubAuthSource,
   SourceControlProviderAuth,
+  SourceControlProviderDiscoveryItem,
 } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 
 export const GITHUB_OAUTH_MESSAGE_TYPE = "t3.github-oauth";
 export const GITHUB_OAUTH_POPUP_NAME = "t3-github-oauth";
@@ -20,6 +22,42 @@ export function isManagedGitHubConnected(auth: SourceControlProviderAuth | undef
 
 export function canDisconnectManagedGitHub(auth: SourceControlProviderAuth): boolean {
   return isManagedGitHubConnected(auth);
+}
+
+export type SourceControlProviderReadiness = {
+  readonly ready: boolean;
+  readonly pending: boolean;
+  readonly hint: string | null;
+};
+
+export function resolveSourceControlProviderReadiness(input: {
+  readonly pending: boolean;
+  readonly label: string;
+  readonly provider: SourceControlProviderDiscoveryItem | undefined;
+}): SourceControlProviderReadiness {
+  if (input.pending && input.provider === undefined) {
+    return { ready: false, pending: true, hint: `Checking ${input.label}…` };
+  }
+  if (input.provider === undefined) {
+    return {
+      ready: false,
+      pending: false,
+      hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
+    };
+  }
+  if (input.provider.status !== "available") {
+    return { ready: false, pending: false, hint: input.provider.installHint };
+  }
+  if (input.provider.auth.status === "unauthenticated") {
+    return {
+      ready: false,
+      pending: false,
+      hint:
+        Option.getOrNull(input.provider.auth.detail) ??
+        `${input.provider.label} is not authenticated. Open Settings -> Source Control for setup guidance.`,
+    };
+  }
+  return { ready: true, pending: false, hint: null };
 }
 
 export function shouldShowHostedGitHubAuthGate(input: {

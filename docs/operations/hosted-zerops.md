@@ -44,7 +44,17 @@ root.
 
 ## Push
 
-From a clean checkout:
+Pushes to `main` pack and deploy `stack` through
+[`.github/workflows/deploy-zerops.yml`](../../.github/workflows/deploy-zerops.yml).
+Set these GitHub Actions secrets on the repo:
+
+| Secret                 | Value                                      |
+| ---------------------- | ------------------------------------------ |
+| `ZEROPS_TOKEN`         | From Zerops → Access Token Management      |
+| `T3CODE_PUBLIC_URL`    | Public `https://` origin                   |
+| `T3CODE_PAIRING_CODE`  | Six-digit PIN used by `pack.sh`            |
+
+A one-off from a clean checkout still works:
 
 ```bash
 cp deploy/zerops/.env.example deploy/zerops/.env
@@ -86,17 +96,23 @@ Then deploy `stack` as usual; `zerops.yml` wires the mount.
 | Path                         | Role                                                 |
 | ---------------------------- | ---------------------------------------------------- |
 | `/srv/coda-data/.t3`         | `T3CODE_HOME` — pairing keys, SQLite, settings, and per-session GitHub OAuth tokens under `userdata/secrets` |
+| `/srv/coda-data/coda`        | `HOME` — agent project workspace (`~/`)              |
+| `/srv/coda-data/deployments` | `CODA_DEPLOYMENTS_HOME` — zcli/fly/railway XDG state |
+| `/srv/coda-data/hermes`      | `HERMES_HOME` — Hermes config and secrets            |
 
 GitHub OAuth tokens persist across container replacement through `T3CODE_HOME`, not
 `HOME/.config/gh`. A leftover host-level `gh auth login` is a shared compatibility fallback only;
 managed per-session OAuth records stay isolated and take precedence. Revoking a paired Coda
 session also revokes that session's GitHub app token when possible.
-| `/srv/coda-data/coda`        | `HOME` — agent project workspace (`~/`)              |
-| `/srv/coda-data/deployments` | `CODA_DEPLOYMENTS_HOME` — zcli/fly/railway XDG state |
-| `/srv/coda-data/hermes`      | `HERMES_HOME` — Hermes config and secrets            |
 
 On first boot after attaching the volume, `start.sh` copies any leftover state from the old
 ephemeral `/home/zerops/*` paths when the destination is still empty.
 
 Agent and terminal processes do not inherit `T3CODE_*`, `VITE_*`, or `ZEROPS_*`, so they cannot
 treat this Coda host as their deploy target.
+
+Git `user.name` / `user.email` for hosted commits live in `/srv/coda-data/coda/.gitconfig`
+(`HOME`). If unset, Coda authors commits as `Coda <t3code@users.noreply.github.com>` so they
+still succeed. Operators or users can set a real identity from a Coda terminal with
+`git config --global user.name` and `git config --global user.email`. Push and fetch use the
+per-session GitHub OAuth token, not SSH keys.

@@ -58,6 +58,40 @@ export function groupBackgroundApps(apps: ReadonlyArray<BackgroundAppSnapshot>):
   return { active, idle };
 }
 
+export function backgroundAppStatusLabel(status: BackgroundAppSnapshot["status"]): string {
+  switch (status) {
+    case "starting":
+      return "Starting…";
+    case "running":
+      return "Running";
+    case "stopping":
+      return "Stopping…";
+    case "stopped":
+      return "Stopped";
+    case "failed":
+      return "Failed";
+  }
+}
+
+export function isBackgroundAppTransitionalStatus(
+  status: BackgroundAppSnapshot["status"],
+): boolean {
+  return status === "starting" || status === "stopping";
+}
+
+export function backgroundAppProgressHint(app: {
+  readonly status: BackgroundAppSnapshot["status"];
+  readonly endpoints: ReadonlyArray<unknown>;
+}): string | null {
+  if (app.status === "starting" && app.endpoints.length === 0) {
+    return "Waiting for a listening port…";
+  }
+  if (app.status === "stopping") {
+    return "Shutting down…";
+  }
+  return null;
+}
+
 export function matchBackgroundAppForServer(
   apps: ReadonlyArray<BackgroundAppSnapshot>,
   server: {

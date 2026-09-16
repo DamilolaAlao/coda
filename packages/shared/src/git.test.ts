@@ -7,6 +7,7 @@ import {
   cloneDirectoryNameFromRepositoryRef,
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
+  parseGitHubRepositoryLocator,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
@@ -66,6 +67,24 @@ describe("parseGitHubRepositoryNameWithOwnerFromRemoteUrl", () => {
     expect(
       parseGitHubRepositoryNameWithOwnerFromRemoteUrl("https://github.com/T3Tools/T3Code.git"),
     ).toBe("T3Tools/T3Code");
+  });
+});
+
+describe("parseGitHubRepositoryLocator", () => {
+  it("accepts owner/repo and github.com URLs", () => {
+    expect(parseGitHubRepositoryLocator("octocat/hello")).toEqual({
+      owner: "octocat",
+      repo: "hello",
+    });
+    expect(parseGitHubRepositoryLocator("https://github.com/octocat/hello.git")).toEqual({
+      owner: "octocat",
+      repo: "hello",
+    });
+  });
+
+  it("rejects partial repository names", () => {
+    expect(parseGitHubRepositoryLocator("type")).toBeNull();
+    expect(parseGitHubRepositoryLocator("octocat")).toBeNull();
   });
 });
 
