@@ -141,15 +141,34 @@ export function shouldSpaFallbackMissingFile(requestPath: string): boolean {
   return true;
 }
 
+const HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const UNCACHEABLE_CACHE_CONTROL = "no-store";
+
 export function staticFileCacheControl(requestPath: string): string {
   const pathname = (requestPath.split("?")[0] ?? requestPath).toLowerCase();
-  if (pathname === "/" || pathname === "/index.html" || pathname.endsWith(".html")) {
-    return "no-cache";
+  // Cloudflare caches .js/.css by extension for 4h when origin is silent. Only
+  // content-hashed Vite files under /assets/ are safe to cache.
+  if (pathname.startsWith("/assets/") && pathname.length > "/assets/".length) {
+    return HASHED_ASSET_CACHE_CONTROL;
   }
-  if (pathname.startsWith("/assets/")) {
-    return "public, max-age=31536000, immutable";
-  }
-  return "public, max-age=3600";
+  return UNCACHEABLE_CACHE_CONTROL;
+}
+
+export function staticCacheHeaders(requestPath: string): Record<string, string> {
+  return cacheControlHeaders(staticFileCacheControl(requestPath));
+}
+
+export function uncacheableHeaders(): Record<string, string> {
+  return cacheControlHeaders(UNCACHEABLE_CACHE_CONTROL);
+}
+
+function cacheControlHeaders(cacheControl: string): Record<string, string> {
+  return {
+    "Cache-Control": cacheControl,
+    "CDN-Cache-Control": cacheControl,
+    "Cloudflare-CDN-Cache-Control": cacheControl,
+    "X-Content-Type-Options": "nosniff",
+  };
 }
 
 export const authenticateRawRouteWithScope = (scope: AuthEnvironmentScope) =>
@@ -345,7 +364,7 @@ export const staticAndDevRouteLayer = HttpRouter.add(
       if (!shouldSpaFallbackMissingFile(url.value.pathname)) {
         return HttpServerResponse.text("Not Found", {
           status: 404,
-          headers: { "Cache-Control": "no-store" },
+          headers: uncacheableHeaders(),
         });
       }
 
@@ -356,13 +375,13 @@ export const staticAndDevRouteLayer = HttpRouter.add(
       if (!indexData) {
         return HttpServerResponse.text("Not Found", {
           status: 404,
-          headers: { "Cache-Control": "no-store" },
+          headers: uncacheableHeaders(),
         });
       }
       return HttpServerResponse.uint8Array(indexData, {
         status: 200,
         contentType: "text/html; charset=utf-8",
-        headers: { "Cache-Control": staticFileCacheControl("/index.html") },
+        headers: uncacheableHeaders(),
       });
     }
 
@@ -375,7 +394,7 @@ export const staticAndDevRouteLayer = HttpRouter.add(
     return HttpServerResponse.uint8Array(data, {
       status: 200,
       contentType,
-      headers: { "Cache-Control": staticFileCacheControl(staticRequestPath) },
+      headers: staticCacheHeaders(staticRequestPath),
     });
   }),
 );

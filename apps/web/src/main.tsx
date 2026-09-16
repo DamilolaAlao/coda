@@ -17,7 +17,21 @@ import {
 } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
 import { clerkAppearance } from "./components/clerk/clerkAppearance";
-import { clearStaleChunkReload, recoverFromStaleChunkLoad } from "./staleChunkReload.logic";
+import {
+  clearStaleChunkReload,
+  recoverFromStaleChunkLoad,
+  withoutStaleChunkCacheBust,
+  withStaleChunkCacheBust,
+} from "./staleChunkReload.logic";
+
+const reloadPastHttpCache = () => {
+  window.location.replace(withStaleChunkCacheBust(window.location.href, Date.now()));
+};
+
+const cleanedLocation = withoutStaleChunkCacheBust(window.location.href);
+if (cleanedLocation) {
+  window.history.replaceState(window.history.state, "", cleanedLocation);
+}
 
 window.addEventListener("vite:preloadError", (event) => {
   const recovered = recoverFromStaleChunkLoad({
@@ -26,9 +40,7 @@ window.addEventListener("vite:preloadError", (event) => {
         ? event.payload
         : new TypeError("Failed to fetch dynamically imported module"),
     storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
-    reload: () => {
-      window.location.reload();
-    },
+    reload: reloadPastHttpCache,
   });
   if (recovered) {
     event.preventDefault();

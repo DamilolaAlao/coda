@@ -5,6 +5,9 @@ import {
   isStaleChunkLoadError,
   recoverFromStaleChunkLoad,
   STALE_CHUNK_RELOAD_KEY,
+  STALE_CHUNK_RELOAD_PARAM,
+  withoutStaleChunkCacheBust,
+  withStaleChunkCacheBust,
 } from "./staleChunkReload.logic";
 
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -24,11 +27,18 @@ function memoryStorage(initial: Record<string, string> = {}) {
 }
 
 describe("stale chunk reload", () => {
-  it("recognizes failed dynamic imports", () => {
+  it("recognizes failed dynamic imports and HTML served as modules", () => {
     expect(
       isStaleChunkLoadError(
         new TypeError(
           "Failed to fetch dynamically imported module: https://www.iointel.dev/assets/DiffPanel-BkgrAD6v.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isStaleChunkLoadError(
+        new Error(
+          'Failed to load module script: Expected a JavaScript module but the server responded with a MIME type of "text/html"',
         ),
       ),
     ).toBe(true);
@@ -57,6 +67,14 @@ describe("stale chunk reload", () => {
       }),
     ).toBe(false);
     expect(reloads).toEqual([1]);
+  });
+
+  it("busts the document cache key and strips the param after boot", () => {
+    const busted = withStaleChunkCacheBust("https://www.iointel.dev/pair#token=abc", 1_700_000_000);
+    expect(busted).toContain(`${STALE_CHUNK_RELOAD_PARAM}=1700000000`);
+    expect(busted).toContain("#token=abc");
+    expect(withoutStaleChunkCacheBust(busted)).toBe("/pair#token=abc");
+    expect(withoutStaleChunkCacheBust("https://www.iointel.dev/")).toBeNull();
   });
 
   it("clears the one-shot guard after a successful boot", () => {

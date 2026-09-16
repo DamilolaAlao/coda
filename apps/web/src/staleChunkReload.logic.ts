@@ -1,11 +1,27 @@
 export const STALE_CHUNK_RELOAD_KEY = "coda:stale-chunk-reload";
+export const STALE_CHUNK_RELOAD_PARAM = "_r";
 
 const STALE_CHUNK_MESSAGE =
-  /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading chunk [\w.-]+ failed/i;
+  /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Failed to load module script|Unable to preload CSS|Loading chunk [\w.-]+ failed|MIME type of ["']text\/html["']/i;
 
 export function isStaleChunkLoadError(error: unknown): boolean {
   const message = staleChunkErrorMessage(error);
   return STALE_CHUNK_MESSAGE.test(message);
+}
+
+export function withStaleChunkCacheBust(href: string, now: number): string {
+  const url = new URL(href);
+  url.searchParams.set(STALE_CHUNK_RELOAD_PARAM, String(now));
+  return url.href;
+}
+
+export function withoutStaleChunkCacheBust(href: string): string | null {
+  const url = new URL(href);
+  if (!url.searchParams.has(STALE_CHUNK_RELOAD_PARAM)) {
+    return null;
+  }
+  url.searchParams.delete(STALE_CHUNK_RELOAD_PARAM);
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function recoverFromStaleChunkLoad(input: {

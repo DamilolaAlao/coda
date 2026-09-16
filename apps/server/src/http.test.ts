@@ -6,7 +6,9 @@ import {
   isLoopbackHostname,
   resolveDevRedirectUrl,
   shouldSpaFallbackMissingFile,
+  staticCacheHeaders,
   staticFileCacheControl,
+  uncacheableHeaders,
 } from "./http.ts";
 
 describe("http dev routing", () => {
@@ -69,12 +71,27 @@ describe("static SPA fallback", () => {
 });
 
 describe("staticFileCacheControl", () => {
-  it("keeps HTML fresh and hashed assets immutable", () => {
-    expect(staticFileCacheControl("/")).toBe("no-cache");
-    expect(staticFileCacheControl("/index.html")).toBe("no-cache");
+  it("caches only hashed Vite assets and leaves everything else uncached", () => {
+    expect(staticFileCacheControl("/")).toBe("no-store");
+    expect(staticFileCacheControl("/index.html")).toBe("no-store");
+    expect(staticFileCacheControl("/pair")).toBe("no-store");
+    expect(staticFileCacheControl("/harnesses/claude.svg")).toBe("no-store");
+    expect(staticFileCacheControl("/favicon.ico")).toBe("no-store");
     expect(staticFileCacheControl("/assets/DiffPanel-C3rx-Y7P.js")).toBe(
       "public, max-age=31536000, immutable",
     );
-    expect(staticFileCacheControl("/harnesses/claude.svg")).toBe("public, max-age=3600");
+  });
+
+  it("tells browsers and Cloudflare not to store HTML or misses", () => {
+    expect(uncacheableHeaders()).toMatchObject({
+      "Cache-Control": "no-store",
+      "CDN-Cache-Control": "no-store",
+      "Cloudflare-CDN-Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    expect(staticCacheHeaders("/assets/index-DekXhs1b.js")).toMatchObject({
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "CDN-Cache-Control": "public, max-age=31536000, immutable",
+    });
   });
 });

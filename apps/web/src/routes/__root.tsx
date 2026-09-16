@@ -23,7 +23,7 @@ import { GitHubAuthGateDialog } from "../components/auth/GitHubAuthGateDialog";
 import { readPasscodeUnlocked, writePasscodeUnlocked } from "../passcodeGate";
 import { connectPairing } from "../connection/onboarding";
 import { configuredPairingUrl, hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
-import { recoverFromStaleChunkLoad } from "../staleChunkReload.logic";
+import { recoverFromStaleChunkLoad, withStaleChunkCacheBust } from "../staleChunkReload.logic";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -380,7 +380,7 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
       error,
       storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
       reload: () => {
-        window.location.reload();
+        window.location.replace(withStaleChunkCacheBust(window.location.href, Date.now()));
       },
     });
   }, [error]);

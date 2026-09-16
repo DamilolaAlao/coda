@@ -1480,6 +1480,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         path.join(staticDir, "assets", "DiffPanel-live.js"),
         "export default 1",
       );
+      yield* fileSystem.writeFileString(path.join(staticDir, "harness.svg"), "<svg></svg>");
 
       yield* buildAppUnderTest({ config: { staticDir } });
 
@@ -1491,16 +1492,22 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const live = yield* HttpClient.get("/assets/DiffPanel-live.js");
       assert.equal(live.status, 200);
       assert.equal(live.headers["cache-control"], "public, max-age=31536000, immutable");
+      assert.equal(live.headers["cdn-cache-control"], "public, max-age=31536000, immutable");
       assert.include(yield* live.text, "export default 1");
 
       const spa = yield* HttpClient.get("/pair");
       assert.equal(spa.status, 200);
-      assert.equal(spa.headers["cache-control"], "no-cache");
+      assert.equal(spa.headers["cache-control"], "no-store");
+      assert.equal(spa.headers["cdn-cache-control"], "no-store");
       assert.include(yield* spa.text, "spa-index");
 
       const index = yield* HttpClient.get("/");
       assert.equal(index.status, 200);
-      assert.equal(index.headers["cache-control"], "no-cache");
+      assert.equal(index.headers["cache-control"], "no-store");
+
+      const harness = yield* HttpClient.get("/harness.svg");
+      assert.equal(harness.status, 200);
+      assert.equal(harness.headers["cache-control"], "no-store");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
