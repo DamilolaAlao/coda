@@ -1,8 +1,10 @@
 ---
 import {
+  DISCORD_INVITE_URL,
   GITHUB_REPOSITORY_URL,
   HOSTED_APP_OPEN_URL,
   HOSTED_APP_URL,
+  ORIGIN_REPOSITORY_URL,
 } from "../lib/site";
 
 interface Props {
@@ -46,6 +48,7 @@ const {
             <a href="/#features">Features</a>
             <a href="/#platforms">Platforms</a>
             <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">Discord</a>
           </div>
           <div class="nav-right">
             <a class="nav-pill nav-pill-ghost" href={HOSTED_APP_OPEN_URL}>Open app</a>
@@ -68,6 +71,8 @@ const {
             <a href={HOSTED_APP_URL}>Web app</a>
             <a href="/download">Downloads</a>
             <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href={ORIGIN_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">Origin</a>
+            <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">Discord</a>
             <a href={`${GITHUB_REPOSITORY_URL}/releases`} target="_blank" rel="noopener noreferrer">Releases</a>
             <a href="/terms-of-service">Terms</a>
             <a href="/privacy-policy">Privacy</a>

@@ -1,8 +1,12 @@
 # Coda
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Origin](https://img.shields.io/badge/origin-pingdotgg%2Ft3code-111827)](https://github.com/pingdotgg/t3code)
+[![Discord](https://img.shields.io/badge/Discord-iointel-5865F2)](https://discord.gg/v7bZhVjuE)
 
 Coda is an "agent harness control surface". It enables control of the agents on your machine with a web app ([hosted](https://www.iointel.dev)), a local server, and [Electron-based desktop](https://github.com/DamilolaAlao/coda) and mobile clients.
+
+This repository is a **Coda** fork of [T3 Code](https://github.com/pingdotgg/t3code) (`pingdotgg/t3code`). Changes in this tree take precedence over origin.
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, Hermes, and OpenCode. If they're set up on your computer, Coda can control them.
 
@@ -49,8 +53,8 @@ This repository is MIT-licensed. Small, focused fixes and docs are welcome. Read
 opening a PR. Security reports go through [SECURITY.md](./SECURITY.md), not public issues.
 
 Coda was created by [T3 Tools](https://t3.codes) as [T3 Code](https://github.com/pingdotgg/t3code).
-This repository is the **Coda** fork. Changes here take precedence over upstream.
-Hosted instance: [iointel.dev](https://www.iointel.dev).
+Origin: [`pingdotgg/t3code`](https://github.com/pingdotgg/t3code). This repository is the **Coda** fork.
+Changes here take precedence over upstream. Hosted instance: [iointel.dev](https://www.iointel.dev).
 
 ## Documentation
 
@@ -97,6 +101,6 @@ vp i
 
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
 
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+Need support? Join the [iointel Discord](https://discord.gg/v7bZhVjuE).
 
 License: [MIT](./LICENSE).

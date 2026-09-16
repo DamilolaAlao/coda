@@ -10,6 +10,8 @@ const FONT_HREF =
   "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800&display=swap";
 const DOWNLOAD_HREF = "https://github.com/DamilolaAlao/coda/releases";
 const GITHUB_HREF = "https://github.com/DamilolaAlao/coda";
+const ORIGIN_HREF = "https://github.com/pingdotgg/t3code";
+const DISCORD_HREF = "https://discord.gg/v7bZhVjuE";
 
 const FEATURES = [
   {
@@ -196,6 +198,7 @@ export function HostedLandingPage() {
             <a href="#features">Features</a>
             <a href="#platforms">Platforms</a>
             <ExternalLink href={GITHUB_HREF}>GitHub</ExternalLink>
+            <ExternalLink href={DISCORD_HREF}>Discord</ExternalLink>
           </div>
           <div className="hosted-landing-nav-actions">
             <Link to="/pair" className="hosted-landing-pill hosted-landing-pill--ghost">
@@ -212,7 +215,8 @@ export function HostedLandingPage() {
           <h1 className="hosted-landing-kicker">Agents, git, and apps — one private stack.</h1>
           <p className="hosted-landing-sub">
             Run Coda in the browser or on your desktop. Assistants, GitHub workspaces, and background
-            apps for live servers.
+            apps for live servers. Open-source fork of{" "}
+            <ExternalLink href={ORIGIN_HREF}>T3 Code</ExternalLink>.
           </p>
           <div className="hosted-landing-cta">
             <Link to="/pair" className="hosted-landing-pill hosted-landing-pill--light">
@@ -333,6 +337,8 @@ export function HostedLandingPage() {
           <Link to="/pair">Web app</Link>
           <ExternalLink href={DOWNLOAD_HREF}>Downloads</ExternalLink>
           <ExternalLink href={GITHUB_HREF}>GitHub</ExternalLink>
+          <ExternalLink href={ORIGIN_HREF}>Origin</ExternalLink>
+          <ExternalLink href={DISCORD_HREF}>Discord</ExternalLink>
         </footer>
       </div>
     </div>

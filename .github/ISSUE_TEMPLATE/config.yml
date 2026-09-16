@@ -3,6 +3,12 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/DamilolaAlao/coda/security/advisories/new
     about: Privately report a security issue. Do not file a public bug.
+  - name: Discord
+    url: https://discord.gg/v7bZhVjuE
+    about: iointel community Discord
+  - name: Origin repository
+    url: https://github.com/pingdotgg/t3code
+    about: Upstream T3 Code (pingdotgg/t3code). This fork's changes take precedence.
   - name: Documentation
     url: https://github.com/DamilolaAlao/coda/tree/main/docs
     about: User, internals, and operations docs live in docs/

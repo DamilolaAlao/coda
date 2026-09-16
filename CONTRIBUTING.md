@@ -8,6 +8,8 @@ thread, turn, provider, client).
 
 Also read the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
+Need help? Join the [iointel Discord](https://discord.gg/v7bZhVjuE).
+
 ## What lands
 
 Small, focused bug fixes.

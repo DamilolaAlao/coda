@@ -184,6 +184,13 @@
   line-height: 1.55;
 }
 
+.hosted-landing-sub a {
+  color: var(--hl-fg);
+  text-decoration: underline;
+  text-decoration-color: rgba(134, 212, 200, 0.45);
+  text-underline-offset: 3px;
+}
+
 .hosted-landing-cta {
   display: flex;
   flex-wrap: wrap;
