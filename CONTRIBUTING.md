@@ -61,6 +61,21 @@ CI owns that.
 Worktree state belongs in `<worktree>/.t3`. Never point a dev server at live
 `~/.t3/userdata`.
 
+## Upstream
+
+This repository forks [pingdotgg/t3code](https://github.com/pingdotgg/t3code).
+`origin` is [DamilolaAlao/coda](https://github.com/DamilolaAlao/coda). On merge
+conflicts, **this tree wins**.
+
+```bash
+git remote add upstream https://github.com/pingdotgg/t3code.git
+chmod +x scripts/sync-upstream.sh
+./scripts/sync-upstream.sh
+```
+
+Do not `reset --hard` to `upstream/main`. That would throw away the hosted
+GitHub, landing, and deploy work in this fork.
+
 ## Security
 
 Report vulnerabilities privately: [SECURITY.md](./SECURITY.md).

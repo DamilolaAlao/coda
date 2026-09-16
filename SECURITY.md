@@ -14,7 +14,7 @@ We will acknowledge complete reports and coordinate disclosure after a fix is av
 
 ## Scope
 
-This repository is an MIT-licensed Coda tree. Reports that belong here:
+This repository is an MIT-licensed fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3code). Reports that belong here:
 
 - The web, desktop, and mobile clients in this repo
 - The Node WebSocket server and provider adapters

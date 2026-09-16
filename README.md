@@ -76,8 +76,9 @@ This repository is MIT-licensed. Small, focused fixes and docs are welcome. Read
 [CONTRIBUTING.md](./CONTRIBUTING.md) and the [Code of Conduct](./CODE_OF_CONDUCT.md) before
 opening a PR. Security reports go through [SECURITY.md](./SECURITY.md), not public issues.
 
-Coda was created by [T3 Tools](https://t3.codes). This tree is a public fork with a hosted
-instance at [iointel.dev](https://www.iointel.dev).
+Coda was created by [T3 Tools](https://t3.codes) as [T3 Code](https://github.com/pingdotgg/t3code).
+This repository is a public fork. **Changes in this tree take precedence over upstream.**
+Hosted instance: [iointel.dev](https://www.iointel.dev).
 
 ## Documentation
 
