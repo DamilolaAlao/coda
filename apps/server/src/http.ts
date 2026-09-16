@@ -101,6 +101,57 @@ export function resolveDevRedirectUrl(devUrl: URL, requestUrl: URL): string {
   return redirectUrl.toString();
 }
 
+const STATIC_ASSET_EXTENSIONS = new Set([
+  ".avif",
+  ".cjs",
+  ".css",
+  ".eot",
+  ".gif",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".js",
+  ".json",
+  ".map",
+  ".mjs",
+  ".otf",
+  ".png",
+  ".svg",
+  ".ttf",
+  ".txt",
+  ".wasm",
+  ".webmanifest",
+  ".webp",
+  ".woff",
+  ".woff2",
+]);
+
+export function shouldSpaFallbackMissingFile(requestPath: string): boolean {
+  const pathname = (requestPath.split("?")[0] ?? requestPath).toLowerCase();
+  if (pathname.startsWith("/assets/")) {
+    return false;
+  }
+
+  const lastSlash = pathname.lastIndexOf("/");
+  const lastDot = pathname.lastIndexOf(".");
+  if (lastDot > lastSlash) {
+    return !STATIC_ASSET_EXTENSIONS.has(pathname.slice(lastDot));
+  }
+
+  return true;
+}
+
+export function staticFileCacheControl(requestPath: string): string {
+  const pathname = (requestPath.split("?")[0] ?? requestPath).toLowerCase();
+  if (pathname === "/" || pathname === "/index.html" || pathname.endsWith(".html")) {
+    return "no-cache";
+  }
+  if (pathname.startsWith("/assets/")) {
+    return "public, max-age=31536000, immutable";
+  }
+  return "public, max-age=3600";
+}
+
 export const authenticateRawRouteWithScope = (scope: AuthEnvironmentScope) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
@@ -291,16 +342,27 @@ export const staticAndDevRouteLayer = HttpRouter.add(
 
     const fileInfo = yield* fileSystem.stat(filePath).pipe(Effect.orElseSucceed(() => null));
     if (!fileInfo || fileInfo.type !== "File") {
+      if (!shouldSpaFallbackMissingFile(url.value.pathname)) {
+        return HttpServerResponse.text("Not Found", {
+          status: 404,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+
       const indexPath = path.resolve(staticRoot, "index.html");
       const indexData = yield* fileSystem
         .readFile(indexPath)
         .pipe(Effect.orElseSucceed(() => null));
       if (!indexData) {
-        return HttpServerResponse.text("Not Found", { status: 404 });
+        return HttpServerResponse.text("Not Found", {
+          status: 404,
+          headers: { "Cache-Control": "no-store" },
+        });
       }
       return HttpServerResponse.uint8Array(indexData, {
         status: 200,
         contentType: "text/html; charset=utf-8",
+        headers: { "Cache-Control": staticFileCacheControl("/index.html") },
       });
     }
 
@@ -313,6 +375,7 @@ export const staticAndDevRouteLayer = HttpRouter.add(
     return HttpServerResponse.uint8Array(data, {
       status: 200,
       contentType,
+      headers: { "Cache-Control": staticFileCacheControl(staticRequestPath) },
     });
   }),
 );

@@ -1,7 +1,13 @@
 import { expect, it } from "@effect/vitest";
 import { describe } from "vite-plus/test";
 
-import { assetResponseHeaders, isLoopbackHostname, resolveDevRedirectUrl } from "./http.ts";
+import {
+  assetResponseHeaders,
+  isLoopbackHostname,
+  resolveDevRedirectUrl,
+  shouldSpaFallbackMissingFile,
+  staticFileCacheControl,
+} from "./http.ts";
 
 describe("http dev routing", () => {
   it("treats localhost and loopback addresses as local", () => {
@@ -43,5 +49,32 @@ describe("assetResponseHeaders", () => {
       "Cache-Control": "private, max-age=3600",
       "X-Content-Type-Options": "nosniff",
     });
+  });
+});
+
+describe("static SPA fallback", () => {
+  it("keeps client routes on the SPA index", () => {
+    expect(shouldSpaFallbackMissingFile("/")).toBe(true);
+    expect(shouldSpaFallbackMissingFile("/pair")).toBe(true);
+    expect(shouldSpaFallbackMissingFile("/settings")).toBe(true);
+    expect(shouldSpaFallbackMissingFile("/thread/abc")).toBe(true);
+  });
+
+  it("does not treat missing hashed assets as the SPA index", () => {
+    expect(shouldSpaFallbackMissingFile("/assets/DiffPanel-BkgrAD6v.js")).toBe(false);
+    expect(shouldSpaFallbackMissingFile("/assets/index-V3JMfx7D.css")).toBe(false);
+    expect(shouldSpaFallbackMissingFile("/favicon.ico")).toBe(false);
+    expect(shouldSpaFallbackMissingFile("/harnesses/claude.svg")).toBe(false);
+  });
+});
+
+describe("staticFileCacheControl", () => {
+  it("keeps HTML fresh and hashed assets immutable", () => {
+    expect(staticFileCacheControl("/")).toBe("no-cache");
+    expect(staticFileCacheControl("/index.html")).toBe("no-cache");
+    expect(staticFileCacheControl("/assets/DiffPanel-C3rx-Y7P.js")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    expect(staticFileCacheControl("/harnesses/claude.svg")).toBe("public, max-age=3600");
   });
 });

@@ -17,6 +17,23 @@ import {
 } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
 import { clerkAppearance } from "./components/clerk/clerkAppearance";
+import { clearStaleChunkReload, recoverFromStaleChunkLoad } from "./staleChunkReload.logic";
+
+window.addEventListener("vite:preloadError", (event) => {
+  const recovered = recoverFromStaleChunkLoad({
+    error:
+      "payload" in event && event.payload instanceof Error
+        ? event.payload
+        : new TypeError("Failed to fetch dynamically imported module"),
+    storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
+    reload: () => {
+      window.location.reload();
+    },
+  });
+  if (recovered) {
+    event.preventDefault();
+  }
+});
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();
@@ -53,3 +70,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     )}
   </React.StrictMode>,
 );
+
+window.setTimeout(() => {
+  // Leave the one-shot guard in place until this bundle has had a chance to
+  // fail again; clearing it on boot would reload-loop if HTML is still stale.
+  clearStaleChunkReload(typeof sessionStorage === "undefined" ? null : sessionStorage);
+}, 3_000);

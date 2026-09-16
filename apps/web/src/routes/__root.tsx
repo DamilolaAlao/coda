@@ -23,6 +23,7 @@ import { GitHubAuthGateDialog } from "../components/auth/GitHubAuthGateDialog";
 import { readPasscodeUnlocked, writePasscodeUnlocked } from "../passcodeGate";
 import { connectPairing } from "../connection/onboarding";
 import { configuredPairingUrl, hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
+import { recoverFromStaleChunkLoad } from "../staleChunkReload.logic";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
@@ -373,6 +374,16 @@ function HostedStaticEnvironmentBootstrap() {
 function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
   const message = errorMessage(error);
   const details = errorDetails(error);
+
+  useEffect(() => {
+    recoverFromStaleChunkLoad({
+      error,
+      storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
+      reload: () => {
+        window.location.reload();
+      },
+    });
+  }, [error]);
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">

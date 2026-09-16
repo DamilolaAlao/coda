@@ -1467,6 +1467,43 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("returns 404 for missing hashed assets instead of the SPA index", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const staticDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-router-asset-miss-",
+      });
+      yield* fileSystem.writeFileString(path.join(staticDir, "index.html"), "<html>spa-index</html>");
+      yield* fileSystem.makeDirectory(path.join(staticDir, "assets"), { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(staticDir, "assets", "DiffPanel-live.js"),
+        "export default 1",
+      );
+
+      yield* buildAppUnderTest({ config: { staticDir } });
+
+      const missing = yield* HttpClient.get("/assets/DiffPanel-BkgrAD6v.js");
+      assert.equal(missing.status, 404);
+      assert.equal(missing.headers["cache-control"], "no-store");
+      assert.isFalse((yield* missing.text).includes("spa-index"));
+
+      const live = yield* HttpClient.get("/assets/DiffPanel-live.js");
+      assert.equal(live.status, 200);
+      assert.equal(live.headers["cache-control"], "public, max-age=31536000, immutable");
+      assert.include(yield* live.text, "export default 1");
+
+      const spa = yield* HttpClient.get("/pair");
+      assert.equal(spa.status, 200);
+      assert.equal(spa.headers["cache-control"], "no-cache");
+      assert.include(yield* spa.text, "spa-index");
+
+      const index = yield* HttpClient.get("/");
+      assert.equal(index.status, 200);
+      assert.equal(index.headers["cache-control"], "no-cache");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("redirects to dev URL when configured", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({
