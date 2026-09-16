@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
 import { APP_BASE_NAME } from "../../branding";
+import { applyHostedLandingDocumentChrome } from "./HostedLandingPage.logic";
 
 import "./HostedLandingPage.css";
 
@@ -160,6 +161,10 @@ function ExternalLink({
 }
 
 export function HostedLandingPage() {
+  useEffect(() => {
+    return applyHostedLandingDocumentChrome(document);
+  }, []);
+
   useEffect(() => {
     const id = "hosted-landing-fonts";
     if (document.getElementById(id)) return;

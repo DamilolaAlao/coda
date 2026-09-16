@@ -104,13 +104,16 @@ function RootRouteView() {
   const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
 
   useEffect(() => {
+    if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
+      return;
+    }
     const frame = window.requestAnimationFrame(() => {
       syncBrowserChromeTheme();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [pathname]);
+  }, [authGateState.status, pathname]);
 
   if (pathname === "/pair" || pathname === "/connect" || pathname.startsWith("/connect/")) {
     return (
