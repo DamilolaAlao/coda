@@ -234,6 +234,33 @@ it.layer(NodeServices.layer)("BackgroundAppService", (it) => {
     );
   });
 
+  it.effect("lists HTTP APIs even when they are not owned by a Coda terminal", () => {
+    const terminals = new FakeTerminal();
+    const ports = new FakePorts();
+    return withApps(
+      terminals,
+      ports,
+      Effect.gen(function* () {
+        const apps = yield* BackgroundApps.BackgroundAppService;
+        ports.servers.push({
+          host: "localhost",
+          port: 3658,
+          url: "http://localhost:3658",
+          processName: "node",
+          pid: 777,
+          terminal: null,
+        });
+        const listed = yield* apps.list({ threadId: ThreadId.make("thread-1") });
+        const discovered = listed.apps.find((app) => app.source === "discovered");
+        expect(discovered?.label).toBe("node");
+        expect(discovered?.endpoints[0]?.port).toBe(3658);
+        expect(discovered?.capabilities.canOpen).toBe(true);
+        expect(discovered?.capabilities.canStop).toBe(false);
+        expect(discovered?.capabilities.canReadLogs).toBe(false);
+      }),
+    );
+  });
+
   it.effect("associates discovered listeners with terminal ownership and never signals a PID", () => {
     const terminals = new FakeTerminal();
     const ports = new FakePorts();

@@ -4,10 +4,12 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type {
-  BackgroundAppLogEvent,
-  BackgroundAppSnapshot,
-  ScopedThreadRef,
+import {
+  DISCOVERED_LISTENER_TERMINAL_ID,
+  isUnownedDiscoveredApp,
+  type BackgroundAppLogEvent,
+  type BackgroundAppSnapshot,
+  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { ExternalLink, RefreshCw, RotateCcw, Square } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -33,6 +35,9 @@ function appendLogEvent(current: string, event: BackgroundAppLogEvent): string {
 }
 
 function capabilityHint(app: BackgroundAppSnapshot): string | null {
+  if (isUnownedDiscoveredApp(app)) {
+    return "Found by its listening HTTP port. Stop and logs need a Coda terminal.";
+  }
   if (app.source === "discovered" && !app.capabilities.canRestart) {
     return "Restart is unavailable because Coda did not launch this process.";
   }
@@ -184,7 +189,8 @@ export function BackgroundAppsPanel(props: {
   useEffect(() => {
     if (
       latestEvent._tag === "Success" &&
-      latestEvent.value.snapshot.threadId === props.threadRef.threadId
+      latestEvent.value.snapshot.threadId === props.threadRef.threadId ||
+        latestEvent.value.snapshot.terminalId === DISCOVERED_LISTENER_TERMINAL_ID
     ) {
       list.refresh();
     }
@@ -241,7 +247,7 @@ export function BackgroundAppsPanel(props: {
             <div className="py-12 text-center">
               <p className="text-sm">No background apps</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Run an action configured to run in the background.
+                Run a background action, or start a local HTTP server in this workspace.
               </p>
             </div>
           ) : null}

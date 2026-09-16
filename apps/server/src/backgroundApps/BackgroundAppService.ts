@@ -10,6 +10,8 @@ import {
   type BackgroundAppSnapshot,
   type BackgroundAppStartInput,
   type BackgroundAppTargetInput,
+  DISCOVERED_LISTENER_TERMINAL_ID,
+  ThreadId,
   type TerminalAttachStreamEvent,
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
@@ -168,11 +170,12 @@ const make = Effect.gen(function* () {
     });
 
     const list = Effect.fn(function* (input: BackgroundAppListInput) {
-      const [apps, servers, terminals, revision] = yield* Effect.all([
+      const [apps, servers, terminals, revision, now] = yield* Effect.all([
         Ref.get(appsRef),
-        portDiscovery.scan(),
+        portDiscovery.scan([], { includeHttpApis: true }),
         Ref.get(terminalsRef),
         Ref.get(revisionRef),
+        DateTime.now,
       ]);
       const managedTerminalKeys = new Set(
         [...apps.values()].map((app) => `${app.launch.threadId}\u0000${app.terminalId}`),
@@ -188,32 +191,59 @@ const make = Effect.gen(function* () {
         return managedSnapshot(app, endpoints);
       });
       const discovered = servers.flatMap((server): ReadonlyArray<BackgroundAppSnapshot> => {
-        if (!server.terminal) return [];
-        const key = `${server.terminal.threadId}\u0000${server.terminal.terminalId}`;
-        if (managedTerminalKeys.has(key)) return [];
-        const terminal = terminals.get(key);
-        if (!terminal) return [];
+        if (server.port === config.port) return [];
+        if (server.terminal) {
+          const key = `${server.terminal.threadId}\u0000${server.terminal.terminalId}`;
+          if (managedTerminalKeys.has(key)) return [];
+          const terminal = terminals.get(key);
+          if (!terminal) return [];
+          return [
+            {
+              id: `discovered:${server.terminal.threadId}:${server.terminal.terminalId}:${server.port}` as BackgroundAppId,
+              source: "discovered",
+              threadId: server.terminal.threadId,
+              projectId: null,
+              terminalId: server.terminal.terminalId,
+              label: server.processName ?? terminal.label ?? `Server on ${server.port}`,
+              command: null,
+              cwd: terminal.cwd,
+              worktreePath: terminal.worktreePath,
+              status: "running",
+              endpoints: [{ host: server.host, port: server.port, url: server.url }],
+              previewUrl: server.url,
+              startedAt: null,
+              updatedAt: terminal.updatedAt,
+              capabilities: {
+                canOpen: true,
+                canReadLogs: true,
+                canRestart: false,
+                canStop: true,
+              },
+            },
+          ];
+        }
+        const threadId = input.threadId ?? ThreadId.make(DISCOVERED_LISTENER_TERMINAL_ID);
         return [
           {
-            id: `discovered:${server.terminal.threadId}:${server.terminal.terminalId}:${server.port}` as BackgroundAppId,
+            id: `discovered:listener:${server.host}:${server.port}` as BackgroundAppId,
             source: "discovered",
-            threadId: server.terminal.threadId,
+            threadId,
             projectId: null,
-            terminalId: server.terminal.terminalId,
-            label: server.processName ?? terminal.label ?? `Server on ${server.port}`,
+            terminalId: DISCOVERED_LISTENER_TERMINAL_ID,
+            label: server.processName ?? `Server on ${server.port}`,
             command: null,
-            cwd: terminal.cwd,
-            worktreePath: terminal.worktreePath,
+            cwd: config.cwd,
+            worktreePath: null,
             status: "running",
             endpoints: [{ host: server.host, port: server.port, url: server.url }],
             previewUrl: server.url,
             startedAt: null,
-            updatedAt: terminal.updatedAt,
+            updatedAt: DateTime.formatIso(now),
             capabilities: {
               canOpen: true,
-              canReadLogs: true,
+              canReadLogs: false,
               canRestart: false,
-              canStop: true,
+              canStop: false,
             },
           },
         ];
@@ -392,7 +422,9 @@ const make = Effect.gen(function* () {
     const unsubscribeEvents = yield* terminalManager.subscribe(reconcileTerminalEvent);
     const unsubscribeMetadata = yield* terminalManager.subscribeMetadata(updateTerminalMetadata);
     yield* portDiscovery.retain;
-    yield* portDiscovery.subscribe({ configuredUrls: [], initialSnapshot: [] }, () =>
+    yield* portDiscovery.subscribe(
+      { configuredUrls: [], initialSnapshot: [], includeHttpApis: true },
+      () =>
       Effect.gen(function* () {
         const listed = yield* list({});
         yield* Effect.forEach(listed.apps, (snapshot) => publish(snapshot), { discard: true });

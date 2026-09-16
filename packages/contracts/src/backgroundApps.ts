@@ -9,8 +9,16 @@ export type BackgroundAppId = typeof BackgroundAppId.Type;
 /** Dedicated PTY ids allocated by the background-app manager, hidden from the terminal UI. */
 export const BACKGROUND_APP_TERMINAL_PREFIX = "app-";
 
+/** Terminal id for HTTP listeners that are not owned by a Coda PTY. */
+export const DISCOVERED_LISTENER_TERMINAL_ID = "discovered-listener";
+
 export const isBackgroundAppTerminalId = (terminalId: string): boolean =>
   terminalId.startsWith(BACKGROUND_APP_TERMINAL_PREFIX);
+
+export const isUnownedDiscoveredApp = (app: {
+  readonly source: "managed" | "discovered";
+  readonly terminalId: string;
+}): boolean => app.source === "discovered" && app.terminalId === DISCOVERED_LISTENER_TERMINAL_ID;
 
 export const BackgroundAppStatus = Schema.Literals([
   "starting",

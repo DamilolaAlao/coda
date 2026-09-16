@@ -565,11 +565,13 @@ effectIt.effect(
     return Effect.gen(function* () {
       const scanner = yield* PortScanner.PortDiscovery;
       expect(yield* scanner.scan()).toHaveLength(0);
+      expect(yield* scanner.scan([], { includeHttpApis: true })).toHaveLength(1);
 
       pid += 1;
       makeResponse = () =>
         new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
       expect(yield* scanner.scan()).toHaveLength(0);
+      expect(yield* scanner.scan([], { includeHttpApis: true })).toHaveLength(1);
 
       pid += 1;
       makeResponse = () =>

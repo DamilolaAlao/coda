@@ -13,9 +13,11 @@ Agents can also start a background app with the background-app tools. Those laun
 manager, so you can stop, restart, or inspect them later from the Apps panel.
 
 A process that you start yourself in a terminal can still show up as a **discovered** app when Coda
-can prove a listening port belongs to that terminal. Discovered apps can be opened and usually
-stopped. Restart is only available for managed apps, because Coda never reconstructs a command from
-process listings.
+can prove a listening port belongs to that terminal. HTTP APIs that only speak JSON (or 404 on `/`)
+are included here; the preview panel still prefers HTML documents. Discovered apps can be opened and
+usually stopped. Restart is only available for managed apps, because Coda never reconstructs a
+command from process listings. A listener that is not owned by a Coda terminal can still appear so
+you can open it, but Stop and logs stay unavailable.
 
 ## Control a running app
 

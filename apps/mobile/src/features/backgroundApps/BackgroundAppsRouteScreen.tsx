@@ -1,5 +1,5 @@
 import type { BackgroundAppSnapshot } from "@t3tools/contracts";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, isUnownedDiscoveredApp, ThreadId } from "@t3tools/contracts";
 import type { StaticScreenProps } from "@react-navigation/native";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, View } from "react-native";
@@ -52,8 +52,9 @@ function AppCard(props: {
   const endpoint = app.previewUrl ?? app.endpoints[0]?.url ?? null;
   const logText =
     logs.data?._tag === "snapshot" || logs.data?._tag === "output" ? logs.data.data : null;
-  const unavailable =
-    app.source === "discovered" && !app.capabilities.canRestart
+  const unavailable = isUnownedDiscoveredApp(app)
+    ? "Found by its listening HTTP port. Stop and logs need a Coda terminal."
+    : app.source === "discovered" && !app.capabilities.canRestart
       ? "Restart is unavailable because Coda did not launch this process."
       : null;
 
@@ -165,7 +166,7 @@ export function BackgroundAppsRouteScreen({ route }: Props) {
         <View className="items-center gap-2 py-16">
           <Text className="text-lg font-semibold">No background apps</Text>
           <Text className="text-center text-muted-foreground">
-            Run a background project script or ask an agent to start a development server.
+            Run a background project script, or start a local HTTP server in this workspace.
           </Text>
         </View>
       ) : null}

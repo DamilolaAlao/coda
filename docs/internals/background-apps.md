@@ -10,8 +10,10 @@ subprocess stack.
 PTY through `TerminalManager`. Those PTYs use ids prefixed with `app-` and are hidden from the
 terminal UI. Restart writes the stored command again; it never rebuilds a command from `ps`.
 
-Discovered apps come from `PortDiscovery` when a listener is attributed to a Coda terminal. Only
-that terminal (or a managed app) is stoppable. Unverified PIDs are never signaled.
+Discovered apps come from `PortDiscovery` when a listener speaks HTTP. HTML documents stay
+preview-first; JSON and other HTTP APIs are included for the Apps surface. Terminal-owned
+listeners can be stopped. Unverified PIDs are never signaled. Listeners without a Coda terminal
+can still appear as openable discovered apps.
 
 ## Persistence
 

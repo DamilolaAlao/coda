@@ -8,8 +8,9 @@
  * Windows / lsof missing: checks a curated list of common dev ports through
  * the shared Net service.
  *
- * Listening ports are published only after a bounded HTTP(S) probe finds a
- * successful HTML document or a redirect to one.
+ * Listening ports are classified after a bounded HTTP(S) probe. Preview
+ * publishes successful HTML documents (or redirects to one). Apps can also
+ * include JSON and other HTTP APIs that do not serve a document at `/`.
  * Positive and negative results are cached briefly by candidate URL and listener identity,
  * limiting repeated requests without leaving stale classifications around.
  *
@@ -45,11 +46,13 @@ export class PortDiscovery extends Context.Service<
   {
     readonly scan: (
       configuredUrls?: ReadonlyArray<string>,
+      options?: { readonly includeHttpApis?: boolean },
     ) => Effect.Effect<ReadonlyArray<DiscoveredLocalServer>>;
     readonly subscribe: (
       input: {
         readonly configuredUrls: ReadonlyArray<string>;
         readonly initialSnapshot: ReadonlyArray<DiscoveredLocalServer>;
+        readonly includeHttpApis?: boolean;
       },
       listener: (servers: ReadonlyArray<DiscoveredLocalServer>) => Effect.Effect<void>,
     ) => Effect.Effect<void, never, Scope.Scope>;
@@ -83,6 +86,13 @@ type Listener = (servers: ReadonlyArray<DiscoveredLocalServer>) => Effect.Effect
 interface ListenerSubscription {
   readonly configuredUrls: ReadonlyArray<string>;
   readonly lastSnapshot: ReadonlyArray<DiscoveredLocalServer>;
+  readonly includeHttpApis: boolean;
+}
+
+type HttpProbeKind = "document" | "http";
+
+interface ClassifiedLocalServer extends DiscoveredLocalServer {
+  readonly kind: HttpProbeKind;
 }
 
 interface ScannerState {
@@ -104,7 +114,7 @@ interface TerminalProcessOwner {
 
 interface WebProbeCacheEntry {
   readonly pid: number | null;
-  readonly isWeb: boolean;
+  readonly kind: HttpProbeKind | null;
   readonly expiresAtMillis: number;
 }
 
@@ -115,8 +125,8 @@ interface WebProbeGroup {
 }
 
 interface WebProbeSnapshot {
-  readonly discovered: ReadonlyArray<DiscoveredLocalServer>;
-  readonly configured: ReadonlyMap<string, DiscoveredLocalServer>;
+  readonly discovered: ReadonlyArray<ClassifiedLocalServer>;
+  readonly configured: ReadonlyMap<string, ClassifiedLocalServer>;
 }
 
 const terminalOwnerKey = (owner: {
@@ -162,9 +172,22 @@ const normalizeConfiguredUrls = (urls: ReadonlyArray<string>): ReadonlyArray<str
   ),
 ];
 
+const publicServer = (server: ClassifiedLocalServer): DiscoveredLocalServer => ({
+  host: server.host,
+  port: server.port,
+  url: server.url,
+  processName: server.processName,
+  pid: server.pid,
+  terminal: server.terminal,
+});
+
+const isVisibleProbeKind = (kind: HttpProbeKind, includeHttpApis: boolean): boolean =>
+  kind === "document" || includeHttpApis;
+
 const projectWebProbeSnapshot = (
   snapshot: WebProbeSnapshot,
   configuredUrls: ReadonlyArray<string>,
+  includeHttpApis: boolean,
 ): ReadonlyArray<DiscoveredLocalServer> => {
   const visibleByServer = new Map<string, DiscoveredLocalServer>();
   for (const raw of normalizeConfiguredUrls(configuredUrls)) {
@@ -173,13 +196,40 @@ const projectWebProbeSnapshot = (
     const serverKey = localServerKey(url.hostname, port);
     if (visibleByServer.has(serverKey)) continue;
     const configured = snapshot.configured.get(webProbeCacheKey(raw));
-    if (configured) visibleByServer.set(serverKey, { ...configured, url: raw });
+    if (configured && isVisibleProbeKind(configured.kind, includeHttpApis)) {
+      visibleByServer.set(serverKey, { ...publicServer(configured), url: raw });
+    }
   }
   for (const server of snapshot.discovered) {
+    if (!isVisibleProbeKind(server.kind, includeHttpApis)) continue;
     const key = localServerKey(server.host, server.port);
-    if (!visibleByServer.has(key)) visibleByServer.set(key, server);
+    if (!visibleByServer.has(key)) visibleByServer.set(key, publicServer(server));
   }
   return [...visibleByServer.values()].toSorted((left, right) => left.port - right.port);
+};
+
+export const classifyHttpProbe = (input: {
+  readonly status: number;
+  readonly contentType: string | undefined;
+  readonly location: string | undefined;
+}): HttpProbeKind | null => {
+  const location = input.location?.trim();
+  if (NAVIGATION_REDIRECT_STATUSES.has(input.status) && location) return "document";
+  if (input.status < 100 || input.status >= 600) return null;
+
+  const contentType = input.contentType?.split(";", 1)[0]?.trim().toLowerCase();
+  const isHtml = contentType === "text/html" || contentType === "application/xhtml+xml";
+  if (
+    isHtml &&
+    input.status >= 200 &&
+    input.status < 300 &&
+    input.status !== 204 &&
+    input.status !== 205
+  ) {
+    return "document";
+  }
+
+  return "http";
 };
 
 const parseLsofOutput = (
@@ -329,15 +379,12 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
   const probeWebUrl = Effect.fn("PortDiscovery.probeWebUrl")((url: string) =>
     httpClient.get(url).pipe(
       Effect.map((response) => {
-        const location = response.headers.location?.trim();
-        if (NAVIGATION_REDIRECT_STATUSES.has(response.status) && location) return url;
-        if (response.status < 200 || response.status >= 300) return null;
-        if (response.status === 204 || response.status === 205) return null;
-        const contentType = response.headers["content-type"]
-          ?.split(";", 1)[0]
-          ?.trim()
-          .toLowerCase();
-        return contentType === "text/html" || contentType === "application/xhtml+xml" ? url : null;
+        const kind = classifyHttpProbe({
+          status: response.status,
+          contentType: response.headers["content-type"],
+          location: response.headers.location,
+        });
+        return kind === null ? null : { url, kind };
       }),
       Effect.scoped,
       Effect.timeoutOption(WEB_PROBE_TIMEOUT),
@@ -417,7 +464,7 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
                 ? Effect.succeed({ probe: cachedProbe, fresh: false })
                 : probeWebUrl(url).pipe(
                     Effect.map((result) => ({
-                      probe: { pid, isWeb: result !== null, expiresAtMillis: 0 },
+                      probe: { pid, kind: result?.kind ?? null, expiresAtMillis: 0 },
                       fresh: true,
                     })),
                   ),
@@ -434,16 +481,22 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
         Effect.gen(function* () {
           const probes: Array<readonly [string, WebProbeCacheEntry, boolean]> = [];
           let visibleUrl: string | null = null;
+          let visibleKind: HttpProbeKind | null = null;
           for (const url of group.urls) {
             const key = webProbeCacheKey(url);
             const { probe, fresh } = yield* getProbe(url, group.server.pid);
             probes.push([key, probe, fresh]);
-            if (probe.isWeb) {
+            if (probe.kind === "document") {
               visibleUrl = url;
+              visibleKind = "document";
               break;
             }
+            if (probe.kind === "http" && visibleKind !== "document") {
+              visibleUrl = url;
+              visibleKind = "http";
+            }
           }
-          return { group, probes, visibleUrl };
+          return { group, probes, visibleUrl, visibleKind };
         }),
       { concurrency: WEB_PROBE_CONCURRENCY },
     );
@@ -451,17 +504,17 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
     const nextCache = new Map(
       [...cached].filter(([, probe]) => probe.expiresAtMillis > completedAtMillis),
     );
-    const discovered: DiscoveredLocalServer[] = [];
-    const configured = new Map<string, DiscoveredLocalServer>();
-    for (const { group, probes, visibleUrl } of probed) {
+    const discovered: ClassifiedLocalServer[] = [];
+    const configured = new Map<string, ClassifiedLocalServer>();
+    for (const { group, probes, visibleUrl, visibleKind } of probed) {
       for (const [key, probe, fresh] of probes) {
         nextCache.set(
           key,
           fresh ? { ...probe, expiresAtMillis: completedAtMillis + WEB_PROBE_CACHE_TTL_MS } : probe,
         );
       }
-      if (visibleUrl === null) continue;
-      const server = { ...group.server, url: visibleUrl };
+      if (visibleUrl === null || visibleKind === null) continue;
+      const server = { ...group.server, url: visibleUrl, kind: visibleKind };
       if (group.configuredKey === null) discovered.push(server);
       else configured.set(group.configuredKey, server);
     }
@@ -540,10 +593,11 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
       scanSemaphore.withPermits(1)(scanUnlocked(configuredUrls)),
   );
 
-  const scanOnce: PortDiscovery["Service"]["scan"] = (configuredUrls = []) => {
+  const scanOnce: PortDiscovery["Service"]["scan"] = (configuredUrls = [], options) => {
     const normalized = normalizeConfiguredUrls(configuredUrls);
+    const includeHttpApis = options?.includeHttpApis === true;
     return scanSnapshot(normalized).pipe(
-      Effect.map((snapshot) => projectWebProbeSnapshot(snapshot, normalized)),
+      Effect.map((snapshot) => projectWebProbeSnapshot(snapshot, normalized, includeHttpApis)),
     );
   };
 
@@ -562,7 +616,11 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
         const listeners = new Map(state.listeners);
         const changed: Array<readonly [Listener, ReadonlyArray<DiscoveredLocalServer>]> = [];
         for (const [listener, subscription] of listeners) {
-          const next = projectWebProbeSnapshot(snapshot, subscription.configuredUrls);
+          const next = projectWebProbeSnapshot(
+            snapshot,
+            subscription.configuredUrls,
+            subscription.includeHttpApis,
+          );
           if (serversEqual(subscription.lastSnapshot, next)) continue;
           listeners.set(listener, { ...subscription, lastSnapshot: next });
           changed.push([listener, next]);
@@ -609,6 +667,7 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
           listeners.set(listener, {
             configuredUrls: normalizeConfiguredUrls(input.configuredUrls),
             lastSnapshot: input.initialSnapshot,
+            includeHttpApis: input.includeHttpApis === true,
           });
           return { ...state, listeners };
         }),
