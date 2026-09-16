@@ -61,6 +61,34 @@ function originFromUrl(value: string): string | null {
   }
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith(".local");
+}
+
+export function shouldShowPublicLanding(input: {
+  readonly url?: URL;
+  readonly hasDesktopBridge?: boolean;
+} = {}): boolean {
+  if (input.hasDesktopBridge === true) {
+    return false;
+  }
+  if (
+    input.hasDesktopBridge === undefined &&
+    typeof window !== "undefined" &&
+    window.desktopBridge != null
+  ) {
+    return false;
+  }
+
+  const url =
+    input.url ?? (typeof window !== "undefined" ? new URL(window.location.href) : null);
+  if (url == null) {
+    return false;
+  }
+
+  return !isLoopbackHost(url.hostname);
+}
+
 export function isHostedStaticApp(url: URL = new URL(window.location.href)): boolean {
   if (configuredBackendUrl()) {
     return false;

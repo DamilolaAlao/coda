@@ -7,6 +7,7 @@ import {
   isHostedStaticApp,
   readHostedPairingRequest,
   resolvePairingUrl,
+  shouldShowPublicLanding,
 } from "./hostedPairing";
 
 describe("hostedPairing", () => {
@@ -103,6 +104,18 @@ describe("hostedPairing", () => {
 
     vi.stubEnv("VITE_HTTP_URL", "https://backend.example.com");
     expect(isHostedStaticApp(new URL("https://preview.t3.codes/"))).toBe(false);
+  });
+
+  it("shows the public landing on hosted origins, not desktop or loopback", () => {
+    expect(shouldShowPublicLanding({ url: new URL("https://www.iointel.dev/"), hasDesktopBridge: false })).toBe(
+      true,
+    );
+    expect(shouldShowPublicLanding({ url: new URL("http://localhost:5733/"), hasDesktopBridge: false })).toBe(
+      false,
+    );
+    expect(
+      shouldShowPublicLanding({ url: new URL("https://www.iointel.dev/"), hasDesktopBridge: true }),
+    ).toBe(false);
   });
 
   it("detects hosted channel aliases as static apps", () => {
