@@ -52,6 +52,7 @@ import {
   SettingsIcon,
   SquarePenIcon,
   TerminalIcon,
+  Trash2Icon,
   Undo2Icon,
   XIcon,
 } from "lucide-react";
@@ -108,6 +109,7 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments"
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
+import { projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -1638,6 +1640,9 @@ export default function Sidebar() {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const deleteProject = useAtomCommand(projectEnvironment.delete, {
+    reportFailure: false,
+  });
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({
@@ -1916,6 +1921,88 @@ export default function Sidebar() {
       });
     },
     [isMobile, router, setOpenMobile],
+  );
+
+  const handleDeleteProject = useCallback(
+    async (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setProjectScopeMenuOpen(false);
+
+      const api = readLocalApi();
+      if (!api) return;
+
+      const memberKeys = new Set(
+        projectGroup.memberProjectRefs.map(
+          (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+        ),
+      );
+      const projectThreads = threads.filter((thread) =>
+        memberKeys.has(`${thread.environmentId}:${thread.projectId}`),
+      );
+      const confirmed = await api.dialogs.confirm(
+        [
+          projectThreads.length > 0
+            ? `Remove project "${projectGroup.displayName}" and delete its ${projectThreads.length} thread${projectThreads.length === 1 ? "" : "s"}?`
+            : `Remove project "${projectGroup.displayName}"?`,
+          projectGroup.memberProjects.length > 1
+            ? `This removes all ${projectGroup.memberProjects.length} grouped project entries.`
+            : `Path: ${projectGroup.workspaceRoot}`,
+          ...(projectThreads.length > 0
+            ? ["This permanently clears conversation history for those threads."]
+            : []),
+          "Files on disk are not touched.",
+          "This action cannot be undone.",
+        ].join("\n"),
+        { variant: "destructive" },
+      );
+      if (!confirmed) return;
+
+      const draftStore = useComposerDraftStore.getState();
+      for (const member of projectGroup.memberProjects) {
+        const memberThreadCount = projectThreads.filter(
+          (thread) =>
+            thread.environmentId === member.environmentId && thread.projectId === member.id,
+        ).length;
+        const result = await deleteProject({
+          environmentId: member.environmentId,
+          input: {
+            projectId: member.id,
+            ...(memberThreadCount > 0 ? { force: true } : {}),
+          },
+        });
+        if (result._tag === "Failure") {
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: `Failed to remove "${member.title}"`,
+                description:
+                  error instanceof Error ? error.message : "Unknown error removing project.",
+              }),
+            );
+          }
+          return;
+        }
+
+        const projectRef = scopeProjectRef(member.environmentId, member.id);
+        const projectDraftThread = draftStore.getDraftThreadByProjectRef(projectRef);
+        if (projectDraftThread) {
+          draftStore.clearDraftThread(projectDraftThread.draftId);
+        }
+        draftStore.clearProjectDraftThreadId(projectRef);
+      }
+
+      if (projectScopeKey === projectGroup.projectKey) {
+        setProjectScopeKey(null);
+      }
+      if (isMobile) {
+        setOpenMobile(false);
+      }
+      void router.navigate({ to: "/", replace: true });
+    },
+    [deleteProject, isMobile, projectScopeKey, router, setOpenMobile, threads],
   );
 
   // Settled threads stay in the live shell stream (settled ≠ archived), so
@@ -3415,9 +3502,22 @@ export default function Sidebar() {
                             <Button
                               size="icon-xs"
                               variant="ghost-muted"
+                              aria-label={`Remove project ${project.displayName}`}
+                              title={`Remove project ${project.displayName}`}
+                              className="ml-auto size-6 [--control-icon-color:currentColor] text-icon-muted hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                void handleDeleteProject(event, project);
+                              }}
+                            >
+                              <Trash2Icon className="size-3.5" />
+                            </Button>
+                            <Button
+                              size="icon-xs"
+                              variant="ghost-muted"
                               aria-label={`Project settings for ${project.displayName}`}
                               title={`Project settings for ${project.displayName}`}
-                              className="ml-auto size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
+                              className="size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
                               onPointerDown={(event) => event.stopPropagation()}
                               onClick={(event) => {
                                 void handleProjectSettings(event, project);
