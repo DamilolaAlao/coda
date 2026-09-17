@@ -26,7 +26,12 @@ import {
   ensureBrowseDirectoryPath,
   inferProjectTitleFromPath,
 } from "@t3tools/client-runtime/state/projects";
-import { CommandId, type EnvironmentId, ProjectId } from "@t3tools/contracts";
+import {
+  CommandId,
+  type EnvironmentId,
+  ProjectId,
+  type SourceControlRepositoryInfo,
+} from "@t3tools/contracts";
 import { CommonActions, StackActions, useNavigation } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -675,12 +680,63 @@ export function AddProjectRepositoryScreen(props: {
   const lookupRepositoryQuery = useAtomQueryRunner(sourceControlEnvironment.repository, {
     reportFailure: false,
   });
+  const searchRepositoriesQuery = useAtomQueryRunner(sourceControlEnvironment.repositorySearch, {
+    reportFailure: false,
+  });
   const navigation = useNavigation();
   const environment = useEnvironmentFromParam(props.environmentId);
   const source = sourceFromParam(props.source);
   const [repositoryInput, setRepositoryInput] = useState("");
+  const [repositories, setRepositories] = useState<ReadonlyArray<SourceControlRepositoryInfo>>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const openRepository = useCallback(
+    (repository: SourceControlRepositoryInfo) => {
+      if (!environment) return;
+      navigation.dispatch(
+        StackActions.push("AddProjectDestination", {
+          environmentId: environment.environmentId,
+          source,
+          remoteUrl: repository.url,
+          repositoryTitle: repository.nameWithOwner,
+        }),
+      );
+    },
+    [environment, navigation, source],
+  );
+
+  useEffect(() => {
+    if (!environment || source !== "github") {
+      setRepositories([]);
+      setIsSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsSearching(true);
+    const timeout = setTimeout(() => {
+      void searchRepositoriesQuery({
+        environmentId: environment.environmentId,
+        input: {
+          provider: "github",
+          query: repositoryInput.trim(),
+          limit: 30,
+          ownerOnly: true,
+        },
+      }).then((result) => {
+        if (cancelled) return;
+        setIsSearching(false);
+        setRepositories(AsyncResult.isSuccess(result) ? result.value.repositories : []);
+      });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [environment, repositoryInput, searchRepositoriesQuery, source]);
 
   const lookupRepository = useCallback(async () => {
     if (!environment || repositoryInput.trim().length === 0 || isSubmitting) return;
@@ -711,18 +767,18 @@ export function AddProjectRepositoryScreen(props: {
     if (AsyncResult.isFailure(result)) {
       setError(errorMessage(Cause.squash(result.cause)));
     } else {
-      const repository = result.value;
-      navigation.dispatch(
-        StackActions.push("AddProjectDestination", {
-          environmentId: environment.environmentId,
-          source,
-          remoteUrl: repository.url,
-          repositoryTitle: repository.nameWithOwner,
-        }),
-      );
+      openRepository(result.value);
     }
     setIsSubmitting(false);
-  }, [environment, isSubmitting, lookupRepositoryQuery, repositoryInput, navigation, source]);
+  }, [
+    environment,
+    isSubmitting,
+    lookupRepositoryQuery,
+    openRepository,
+    repositoryInput,
+    navigation,
+    source,
+  ]);
 
   return (
     <AddProjectShell>
@@ -749,6 +805,31 @@ export function AddProjectRepositoryScreen(props: {
             onPress={() => void lookupRepository()}
             loading={isSubmitting}
           />
+          {source === "github" && (isSearching || repositories.length > 0) ? (
+            <>
+              <Text className="mt-2 px-1 text-xs font-t3-medium text-foreground-muted">
+                {repositoryInput.trim().length === 0 ? "Your repositories" : "Repositories"}
+              </Text>
+              {isSearching && repositories.length === 0 ? (
+                <View className="items-center py-4">
+                  <ActivityIndicator />
+                </View>
+              ) : (
+                <ListSection>
+                  {repositories.map((repository, index) => (
+                    <ListRow
+                      key={repository.nameWithOwner}
+                      title={repository.nameWithOwner}
+                      subtitle={repository.url}
+                      icon={<SourceControlIcon kind="github" size={18} />}
+                      isFirst={index === 0}
+                      onPress={() => openRepository(repository)}
+                    />
+                  ))}
+                </ListSection>
+              )}
+            </>
+          ) : null}
         </>
       ) : (
         <EmptyEnvironmentState />

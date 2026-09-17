@@ -383,9 +383,11 @@ describe("GitHubCli.layer", () => {
           Layer.provide(store),
         ),
       ),
-      Effect.ensuring(Effect.sync(() => {
-        globalThis.fetch = originalFetch;
-      })),
+      Effect.ensuring(
+        Effect.sync(() => {
+          globalThis.fetch = originalFetch;
+        }),
+      ),
     );
   });
 
@@ -521,6 +523,81 @@ describe("GitHubCli.layer", () => {
       assert.include(requested[0], "search/repositories?q=");
       assert.include(decodeURIComponent(requested[0]!), "user:octocat");
       assert.include(requested[0], "codething");
+      expect(mockRun).not.toHaveBeenCalled();
+    }).pipe(
+      Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),
+      Effect.provide(
+        GitHubCli.layer.pipe(
+          Layer.provide(
+            Layer.mock(VcsProcess.VcsProcess)({
+              run: mockRun,
+            }),
+          ),
+          Layer.provide(store),
+        ),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          globalThis.fetch = originalFetch;
+        }),
+      ),
+    );
+  });
+
+  it.effect("lists recently updated repositories when the search query is empty", () => {
+    const requested: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested.push(String(input));
+      return Response.json([
+        {
+          full_name: "octocat/recent-project",
+          html_url: "https://github.com/octocat/recent-project",
+        },
+      ]);
+    }) as typeof fetch;
+    const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+      get: (sessionId) =>
+        Effect.succeed(
+          sessionId === TENANT_SESSION
+            ? Option.some({
+                version: 1 as const,
+                sessionId: TENANT_SESSION,
+                token: TENANT_TOKEN,
+                tokenType: "bearer",
+                scope: "",
+                account: "octocat",
+                host: "github.com",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              })
+            : Option.none(),
+        ),
+      set: () => Effect.void,
+      remove: () => Effect.void,
+      createOAuthState: () => Effect.succeed({ state: "unused" }),
+      consumeOAuthState: () => Effect.succeed(Option.none()),
+    });
+
+    return Effect.gen(function* () {
+      const gh = yield* GitHubCli.GitHubCli;
+      const result = yield* gh.searchRepositories({
+        cwd: "/repo",
+        query: "",
+        limit: 10,
+      });
+
+      assert.deepStrictEqual(result, [
+        {
+          nameWithOwner: "octocat/recent-project",
+          url: "https://github.com/octocat/recent-project",
+          sshUrl: "git@github.com:octocat/recent-project.git",
+        },
+      ]);
+      assert.equal(requested.length, 1);
+      assert.include(requested[0], "/user/repos?");
+      assert.include(requested[0], "sort=updated");
+      assert.include(requested[0], "affiliation=owner");
       expect(mockRun).not.toHaveBeenCalled();
     }).pipe(
       Effect.provideService(GitHubTenant, { sessionId: TENANT_SESSION }),

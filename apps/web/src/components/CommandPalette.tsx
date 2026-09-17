@@ -1584,7 +1584,9 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "apps.toggle",
     run: async () => {
       if (!activeThread) return;
-      useRightPanelStore.getState().toggle(scopeThreadRef(activeThread.environmentId, activeThread.id), "apps");
+      useRightPanelStore
+        .getState()
+        .toggle(scopeThreadRef(activeThread.environmentId, activeThread.id), "apps");
     },
   });
 
@@ -1598,7 +1600,9 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "http.toggle",
     run: async () => {
       if (!activeThread) return;
-      useRightPanelStore.getState().toggle(scopeThreadRef(activeThread.environmentId, activeThread.id), "http");
+      useRightPanelStore
+        .getState()
+        .toggle(scopeThreadRef(activeThread.environmentId, activeThread.id), "http");
     },
   });
 
@@ -1877,7 +1881,7 @@ function OpenCommandPaletteDialog(props: {
     }
 
     if (
-      deferredRepositoryQuery.length === 0 ||
+      deferredRepositoryQuery.length > 0 &&
       parseGitHubRepositoryLocator(deferredRepositoryQuery) !== null
     ) {
       setGithubSearchResults([]);
@@ -2178,6 +2182,7 @@ function OpenCommandPaletteDialog(props: {
     }
     return [
       {
+        value: "github-repositories",
         label: "Repositories",
         items: githubSearchResults.map(
           (repository): CommandPaletteActionItem => ({
@@ -2571,9 +2576,7 @@ function OpenCommandPaletteDialog(props: {
           aria-label="Search my GitHub repositories only"
         />
         <span>
-          {connectedGitHubAccount
-            ? `My repos (${connectedGitHubAccount})`
-            : "My repositories only"}
+          {connectedGitHubAccount ? `My repos (${connectedGitHubAccount})` : "My repositories only"}
         </span>
       </label>
     ) : canOpenProjectFromFileManager ? (
@@ -2666,7 +2669,9 @@ function OpenCommandPaletteDialog(props: {
                   : isGithubSearchPending
                     ? "Searching GitHub repositories…"
                     : githubSearchResults.length > 0
-                      ? "Select a repository below or enter owner/repo."
+                      ? query.trim().length === 0
+                        ? "Select one of your recently updated repositories."
+                        : "Select a repository below or enter owner/repo."
                       : githubSearchOwnerOnly
                         ? connectedGitHubAccount
                           ? `Search your repositories on ${connectedGitHubAccount} or enter owner/repo.`

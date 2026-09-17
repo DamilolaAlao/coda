@@ -528,8 +528,15 @@ export const make = Effect.gen(function* () {
       readonly ownerOnly: boolean;
       readonly account: string | null;
     }) {
-      const searchQuery = buildGitHubRepositorySearchQuery(input);
-      const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(searchQuery)}&per_page=${input.limit}&sort=updated`;
+      const query = input.query.trim();
+      const url =
+        query.length === 0
+          ? `https://api.github.com/user/repos?per_page=${input.limit}&sort=updated&direction=desc&visibility=all&affiliation=${
+              input.ownerOnly ? "owner" : "owner,collaborator,organization_member"
+            }`
+          : `https://api.github.com/search/repositories?q=${encodeURIComponent(
+              buildGitHubRepositorySearchQuery(input),
+            )}&per_page=${input.limit}&sort=updated`;
       const response = yield* Effect.tryPromise({
         try: () =>
           fetch(url, {
@@ -575,9 +582,15 @@ export const make = Effect.gen(function* () {
         catch: (cause) => cause,
       }).pipe(Effect.orElseSucceed(() => null));
       const items =
-        json !== null && typeof json === "object" && Array.isArray((json as { items?: unknown }).items)
-          ? ((json as { items: ReadonlyArray<unknown> }).items ?? [])
-          : [];
+        query.length === 0
+          ? Array.isArray(json)
+            ? json
+            : []
+          : json !== null &&
+              typeof json === "object" &&
+              Array.isArray((json as { items?: unknown }).items)
+            ? ((json as { items: ReadonlyArray<unknown> }).items ?? [])
+            : [];
       const repositories: GitHubRepositoryCloneUrls[] = [];
       for (const item of items) {
         if (item === null || typeof item !== "object") continue;
@@ -604,9 +617,7 @@ export const make = Effect.gen(function* () {
             timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
             ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
             ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),
-            ...(Option.isSome(credential)
-              ? { env: githubProcessEnv(credential.value.token) }
-              : {}),
+            ...(Option.isSome(credential) ? { env: githubProcessEnv(credential.value.token) } : {}),
           })
           .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error))),
       ),
