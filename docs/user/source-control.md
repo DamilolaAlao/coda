@@ -96,12 +96,16 @@ GitHub sign-in. Hosted Coda servers do not use SSH keys; Connect GitHub is what 
 
 ### Git author name and email
 
-Coda uses Git's `user.name` and `user.email` for commits.
+When this Coda client is signed in with GitHub, commits from the Git actions button, agent
+shells, and Coda terminals are authored as that GitHub user. GitHub links them with the
+noreply address `id+login@users.noreply.github.com`.
 
-If those are unset on the machine running Coda (common on a hosted server), commits still
-succeed and are authored as **Coda**. GitHub will not attribute those commits to your account.
+If GitHub is not connected, Coda uses Git's `user.name` and `user.email`. If those are also
+unset (common on a hosted server), commits still succeed and are authored as **Coda**.
+GitHub will not attribute those commits to your account.
 
-To commit as yourself, set them in a Coda terminal on that environment:
+To override the author on the machine running Coda without Connect GitHub, set them in a Coda
+terminal:
 
 ```bash
 git config --global user.name "Your Name"
@@ -111,8 +115,8 @@ git config --global user.email "12345678+you@users.noreply.github.com"
 Use the noreply address from GitHub → Settings → Emails so GitHub links the commits to you.
 That config lives on the Coda server, not on your laptop.
 
-On a hosted environment this writes to that environment's Git config and applies to every
-project there.
+On a hosted environment a global Git config applies to every project there. Connect GitHub is
+per client and takes precedence for that client's commits.
 
 ### For GitLab
 
@@ -178,9 +182,9 @@ Control settings**.
 - **Can't push to a remote** – Connect GitHub in Settings for this client. Hosted Coda pushes
   over HTTPS with that sign-in; SSH remotes on a server without keys will fail. If GitHub is
   already connected, fetch and retry in case the remote moved.
-- **Commits show up as Coda** – Set `user.name` and `user.email` in a Coda terminal (see
-  [Git author name and email](#git-author-name-and-email)). Use your GitHub noreply address if
-  you want GitHub to count those commits as yours.
+- **Commits show up as Coda** – Sign in with GitHub on this Coda client so commits use your
+  GitHub identity. If GitHub is not connected, set `user.name` and `user.email` in a Coda
+  terminal (see [Git author name and email](#git-author-name-and-email)).
 
 **Need more help?** Check your provider's CLI documentation:
 

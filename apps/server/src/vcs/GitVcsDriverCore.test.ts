@@ -172,17 +172,24 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
 
 it.effect("attaches the tenant GitHub token to network git commands", () => {
   const sessionId = AuthSessionId.make("git-network-tenant");
-  const commands: Array<{ readonly args: ReadonlyArray<string>; readonly extraHeader?: string }> =
-    [];
+  const commands: Array<{
+    readonly args: ReadonlyArray<string>;
+    readonly gitConfigKeys: ReadonlyArray<string>;
+    readonly authorName?: string;
+  }> = [];
   const spawner = ChildProcessSpawner.make((command) =>
     Effect.sync(() => {
       if (!ChildProcess.isStandardCommand(command)) {
         return assert.fail("expected a standard Git command");
       }
+      const gitConfigKeys = [0, 1, 2]
+        .map((index) => command.options.env?.[`GIT_CONFIG_KEY_${index}`])
+        .filter((value): value is string => typeof value === "string");
       commands.push({
         args: command.args,
-        ...(command.options.env?.GIT_CONFIG_KEY_0
-          ? { extraHeader: command.options.env.GIT_CONFIG_KEY_0 }
+        gitConfigKeys,
+        ...(command.options.env?.GIT_AUTHOR_NAME
+          ? { authorName: command.options.env.GIT_AUTHOR_NAME }
           : {}),
       });
       return makeSuccessfulHandle("");
@@ -238,10 +245,17 @@ it.effect("attaches the tenant GitHub token to network git commands", () => {
     assert.deepStrictEqual(commands, [
       {
         args: ["push", "-u", "origin", "HEAD"],
-        extraHeader: "http.https://github.com/.extraheader",
+        gitConfigKeys: [
+          "http.https://github.com/.extraheader",
+          "user.name",
+          "user.email",
+        ],
+        authorName: "octocat",
       },
       {
         args: ["commit", "-m", "local"],
+        gitConfigKeys: ["user.name", "user.email"],
+        authorName: "octocat",
       },
     ]);
   }).pipe(
@@ -1585,6 +1599,51 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         );
       }),
     );
+
+    it.effect("commits as the connected GitHub user instead of the host git identity", () => {
+      const sessionId = AuthSessionId.make("git-author-tenant");
+      const store = Layer.mock(GitHubCredentialStore.GitHubCredentialStore)({
+        get: (id) =>
+          Effect.succeed(
+            id === sessionId
+              ? Option.some({
+                  version: 1 as const,
+                  sessionId,
+                  token: "gho_push_token",
+                  tokenType: "bearer",
+                  scope: "repo",
+                  account: "octocat",
+                  userId: 42,
+                  name: "The Octocat",
+                  host: "github.com",
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                })
+              : Option.none(),
+          ),
+        set: () => Effect.void,
+        remove: () => Effect.void,
+        createOAuthState: () => Effect.succeed({ state: "unused" }),
+        consumeOAuthState: () => Effect.succeed(Option.none()),
+      });
+      return Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "note.txt", "note\n");
+        yield* git(cwd, ["add", "note.txt"]);
+
+        yield* driver.commit(cwd, "Add note", "");
+        assert.equal(yield* git(cwd, ["log", "-1", "--pretty=%an"]), "The Octocat");
+        assert.equal(
+          yield* git(cwd, ["log", "-1", "--pretty=%ae"]),
+          "42+octocat@users.noreply.github.com",
+        );
+      }).pipe(
+        Effect.provideService(GitHubTenant, { sessionId }),
+        Effect.provide(store),
+      );
+    });
 
     it.effect("keeps the configured git identity when committing", () =>
       Effect.gen(function* () {

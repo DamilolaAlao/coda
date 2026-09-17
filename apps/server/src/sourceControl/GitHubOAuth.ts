@@ -45,6 +45,7 @@ const GitHubOAuthTokenResponse = Schema.Struct({
 const GitHubUserResponse = Schema.Struct({
   id: Schema.Number,
   login: Schema.String,
+  name: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 
 export function readConfiguredSecret(value: string | undefined): string | null {
@@ -386,6 +387,7 @@ const callbackRoute = HttpRouter.add(
     );
 
     const occupancy = isolationGitHubSubject(user.id, user.login);
+    const displayName = user.name?.trim();
     let sessionId = consumed.value.sessionId;
     let sessionToken: string | undefined;
     let sessionExpiresAt: DateTime.DateTime | undefined;
@@ -414,6 +416,8 @@ const callbackRoute = HttpRouter.add(
       tokenType: token.token_type ?? "bearer",
       scope: token.scope ?? "",
       account: user.login,
+      userId: user.id,
+      ...(displayName ? { name: displayName } : {}),
       host: GitHubCredentialStore.GITHUB_HOST,
       createdAt: now,
       updatedAt: now,

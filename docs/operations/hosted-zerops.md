@@ -119,7 +119,8 @@ Agent and terminal processes do not inherit `T3CODE_*`, `VITE_*`, or `ZEROPS_*`,
 treat this Coda host as their deploy target.
 
 Git `user.name` / `user.email` for hosted commits live in `/srv/coda-data/coda/.gitconfig`
-(`HOME`). If unset, Coda authors commits as `Coda <coda@users.noreply.github.com>` so they
-still succeed. Operators or users can set a real identity from a Coda terminal with
-`git config --global user.name` and `git config --global user.email`. Push and fetch use the
-per-session GitHub OAuth token, not SSH keys.
+(`HOME`) as a fallback when a client has not connected GitHub. Connected GitHub OAuth authors
+that client's commits (Git actions, agents, and terminals) as the GitHub user with
+`id+login@users.noreply.github.com`. If GitHub is not connected and git identity is unset,
+Coda authors commits as `Coda <coda@users.noreply.github.com>` so they still succeed. Push
+and fetch use the per-session GitHub OAuth token, not SSH keys.

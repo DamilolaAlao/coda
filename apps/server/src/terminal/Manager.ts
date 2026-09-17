@@ -59,6 +59,10 @@ import {
 } from "../observability/Metrics.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { scrubHostRuntimeEnv } from "../process/hostRuntimeEnv.ts";
+import {
+  GitHubCredentialStore,
+  resolveGitHubChildProcessEnv,
+} from "../sourceControl/GitHubCredentialStore.ts";
 import * as PortScanner from "../preview/PortScanner.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
 
@@ -1852,7 +1856,17 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         Effect.andThen(
           Effect.gen(function* () {
             const shellCandidates = resolveShellCandidates(shellResolver, platform, baseEnv);
-            const terminalEnv = createTerminalSpawnEnv(baseEnv, session.runtimeEnv);
+            const githubEnv = yield* Effect.gen(function* () {
+              const store = yield* Effect.serviceOption(GitHubCredentialStore);
+              if (Option.isNone(store)) {
+                return {} as NodeJS.ProcessEnv;
+              }
+              return yield* resolveGitHubChildProcessEnv(store.value, session.cwd);
+            });
+            const terminalEnv = {
+              ...createTerminalSpawnEnv(baseEnv, session.runtimeEnv),
+              ...githubEnv,
+            };
             const spawnResult = yield* trySpawn(shellCandidates, terminalEnv, session);
             ptyProcess = spawnResult.process;
             startedShell = spawnResult.shellLabel;

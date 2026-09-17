@@ -17,7 +17,7 @@ import {
   TurnId,
 } from "@t3tools/contracts";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
-import { childProcessEnvironment } from "../../process/hostRuntimeEnv.ts";
+import { overlayGitHubChildProcessEnv } from "../../sourceControl/GitHubCredentialStore.ts";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -864,7 +864,7 @@ export const makeCodexSessionRuntime = (
     // `child_process.spawn`; `expandHomePath` lets a configured
     // `CODEX_HOME=~/.codex_work` reach codex as an absolute path.
     const resolvedHomePath = options.homePath ? expandHomePath(options.homePath) : undefined;
-    const env = childProcessEnvironment({
+    const env = yield* overlayGitHubChildProcessEnv(options.cwd, {
       ...options.environment,
       ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
     });

@@ -31,10 +31,10 @@ import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import {
-  GitHubCredentialStore,
-  githubHttpsCloneEnv,
-  resolveGitHubProcessCredential,
-} from "../sourceControl/GitHubCredentialStore.ts";
+          GitHubCredentialStore,
+          githubChildProcessEnv,
+          resolveGitHubProcessCredential,
+        } from "../sourceControl/GitHubCredentialStore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 import {
   parseRemoteNames,
@@ -836,9 +836,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ),
         );
         const githubAuthEnv = yield* Effect.gen(function* () {
-          if (!isGitNetworkCommand(commandInput.args)) {
-            return {} as NodeJS.ProcessEnv;
-          }
           const store = yield* Effect.serviceOption(GitHubCredentialStore);
           if (Option.isNone(store)) {
             return {};
@@ -850,7 +847,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           if (Option.isNone(credential)) {
             return {};
           }
-          return githubHttpsCloneEnv(credential.value.token);
+          return githubChildProcessEnv(credential.value, {
+            httpsAuth: isGitNetworkCommand(commandInput.args),
+            processToken: false,
+          });
         });
         const child = yield* commandSpawner
           .spawn(

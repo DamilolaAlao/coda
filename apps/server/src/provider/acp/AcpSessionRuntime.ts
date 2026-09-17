@@ -21,7 +21,7 @@ import type * as EffectAcpSchema from "effect-acp/schema";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
-import { childProcessEnvironment } from "../../process/hostRuntimeEnv.ts";
+import { overlayGitHubChildProcessEnv } from "../../sourceControl/GitHubCredentialStore.ts";
 
 import {
   collectSessionConfigOptionValues,
@@ -331,7 +331,10 @@ export const make = (
         ),
       );
 
-    const spawnEnv = childProcessEnvironment(options.spawn.env);
+    const spawnEnv = yield* overlayGitHubChildProcessEnv(
+      options.cwd,
+      options.spawn.env,
+    );
     const spawnCommand = yield* resolveSpawnCommand(
       options.spawn.command,
       options.spawn.args,

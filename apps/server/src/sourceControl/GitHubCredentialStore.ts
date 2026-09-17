@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
+import { childProcessEnvironment } from "../process/hostRuntimeEnv.ts";
 import { GitHubTenant } from "./GitHubTenant.ts";
 
 export const GITHUB_HOST = "github.com";
@@ -23,11 +24,17 @@ const CredentialRecord = Schema.Struct({
   tokenType: Schema.String,
   scope: Schema.String,
   account: Schema.String,
+  userId: Schema.optionalKey(Schema.Number),
+  name: Schema.optionalKey(Schema.String),
   host: Schema.String,
   createdAt: Schema.String,
   updatedAt: Schema.String,
 });
 export type GitHubCredentialRecord = typeof CredentialRecord.Type;
+export type GitHubCommitIdentity = {
+  readonly name: string;
+  readonly email: string;
+};
 
 const OAuthStateRecord = Schema.Struct({
   version: Schema.Literal(1),
@@ -59,16 +66,74 @@ export const githubProcessEnv = (token: string): NodeJS.ProcessEnv => ({
   GH_HOST: GITHUB_HOST,
 });
 
+export const githubNoreplyEmail = (userId: number, login: string): string =>
+  `${userId}+${login}@users.noreply.github.com`;
+
+export const githubGitIdentity = (record: GitHubCredentialRecord): GitHubCommitIdentity => {
+  const login = record.account.trim() || "user";
+  const name = record.name?.trim() || login;
+  const email =
+    typeof record.userId === "number"
+      ? githubNoreplyEmail(record.userId, login)
+      : `${login}@users.noreply.github.com`;
+  return { name, email };
+};
+
+const gitConfigEnv = (pairs: ReadonlyArray<readonly [string, string]>): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = {
+    GIT_CONFIG_COUNT: String(pairs.length),
+  };
+  for (const [index, [key, value]] of pairs.entries()) {
+    env[`GIT_CONFIG_KEY_${index}`] = key;
+    env[`GIT_CONFIG_VALUE_${index}`] = value;
+  }
+  return env;
+};
+
+const githubHttpsExtraHeader = (token: string): readonly [string, string] => [
+  `http.https://${GITHUB_HOST}/.extraheader`,
+  `AUTHORIZATION: basic ${Encoding.encodeBase64(`x-access-token:${token}`)}`,
+];
+
+const githubIdentityConfigPairs = (
+  identity: GitHubCommitIdentity,
+): ReadonlyArray<readonly [string, string]> => [
+  ["user.name", identity.name],
+  ["user.email", identity.email],
+];
+
 /** Git HTTPS clone env that authenticates without putting the token in argv. */
 export const githubHttpsCloneEnv = (token: string): NodeJS.ProcessEnv => ({
   GIT_TERMINAL_PROMPT: "0",
   GIT_ASKPASS: "",
   SSH_ASKPASS: "",
   SSH_ASKPASS_REQUIRE: "never",
-  GIT_CONFIG_COUNT: "1",
-  GIT_CONFIG_KEY_0: `http.https://${GITHUB_HOST}/.extraheader`,
-  GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Encoding.encodeBase64(`x-access-token:${token}`)}`,
+  ...gitConfigEnv([githubHttpsExtraHeader(token)]),
 });
+
+export const githubChildProcessEnv = (
+  record: GitHubCredentialRecord,
+  options?: { readonly httpsAuth?: boolean; readonly processToken?: boolean },
+): NodeJS.ProcessEnv => {
+  const identity = githubGitIdentity(record);
+  const pairs: Array<readonly [string, string]> = [];
+  if (options?.httpsAuth !== false) {
+    pairs.push(githubHttpsExtraHeader(record.token));
+  }
+  pairs.push(...githubIdentityConfigPairs(identity));
+  return {
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "",
+    SSH_ASKPASS: "",
+    SSH_ASKPASS_REQUIRE: "never",
+    GIT_AUTHOR_NAME: identity.name,
+    GIT_AUTHOR_EMAIL: identity.email,
+    GIT_COMMITTER_NAME: identity.name,
+    GIT_COMMITTER_EMAIL: identity.email,
+    ...(options?.processToken === false ? {} : githubProcessEnv(record.token)),
+    ...gitConfigEnv(pairs),
+  };
+};
 
 export const envContainsGitHubToken = (
   env: NodeJS.ProcessEnv | undefined,
@@ -118,6 +183,25 @@ export const resolveGitHubProcessCredential = (
       if (Option.isSome(credential)) return credential;
     }
     return Option.none<GitHubCredentialRecord>();
+  });
+
+export const resolveGitHubChildProcessEnv = (
+  store: GitHubCredentialStore["Service"],
+  cwd: string,
+  options?: { readonly httpsAuth?: boolean; readonly processToken?: boolean },
+) =>
+  resolveGitHubProcessCredential(store, cwd).pipe(
+    Effect.map((credential) =>
+      Option.isNone(credential) ? {} : githubChildProcessEnv(credential.value, options),
+    ),
+  );
+
+export const overlayGitHubChildProcessEnv = (cwd: string, overlay?: NodeJS.ProcessEnv) =>
+  Effect.gen(function* () {
+    const store = yield* Effect.serviceOption(GitHubCredentialStore);
+    const github =
+      Option.isNone(store) ? {} : yield* resolveGitHubChildProcessEnv(store.value, cwd);
+    return childProcessEnvironment({ ...overlay, ...github });
   });
 
 export const make = Effect.gen(function* () {

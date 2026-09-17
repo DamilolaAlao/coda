@@ -69,6 +69,64 @@ describe("GitHubCredentialStore", () => {
     assert.strictEqual(Buffer.from(encoded, "base64").toString("utf8"), "x-access-token:gho_secret");
     assert.strictEqual(env.GIT_TERMINAL_PROMPT, "0");
   });
+
+  it("authors commits as the GitHub user, not a host gitconfig fallback", () => {
+    const identity = GitHubCredentialStore.githubGitIdentity({
+      version: 1,
+      sessionId: SESSION_A,
+      token: "gho_secret",
+      tokenType: "bearer",
+      scope: "repo",
+      account: "octocat",
+      userId: 42,
+      name: "The Octocat",
+      host: "github.com",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(identity.name, "The Octocat");
+    assert.strictEqual(identity.email, "42+octocat@users.noreply.github.com");
+
+    const env = GitHubCredentialStore.githubChildProcessEnv({
+      version: 1,
+      sessionId: SESSION_A,
+      token: "gho_secret",
+      tokenType: "bearer",
+      scope: "repo",
+      account: "octocat",
+      userId: 42,
+      name: "The Octocat",
+      host: "github.com",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(env.GIT_AUTHOR_NAME, "The Octocat");
+    assert.strictEqual(env.GIT_AUTHOR_EMAIL, "42+octocat@users.noreply.github.com");
+    assert.strictEqual(env.GIT_COMMITTER_NAME, "The Octocat");
+    assert.strictEqual(env.GIT_COMMITTER_EMAIL, "42+octocat@users.noreply.github.com");
+    assert.strictEqual(env.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
+    assert.strictEqual(env.GIT_CONFIG_KEY_1, "user.name");
+    assert.strictEqual(env.GIT_CONFIG_VALUE_1, "The Octocat");
+    assert.strictEqual(env.GIT_CONFIG_KEY_2, "user.email");
+    assert.strictEqual(env.GIT_CONFIG_VALUE_2, "42+octocat@users.noreply.github.com");
+    assert.strictEqual(env.GH_TOKEN, "gho_secret");
+  });
+
+  it("falls back to the GitHub login when display name and user id are missing", () => {
+    const identity = GitHubCredentialStore.githubGitIdentity({
+      version: 1,
+      sessionId: SESSION_A,
+      token: "gho_secret",
+      tokenType: "bearer",
+      scope: "repo",
+      account: "octocat",
+      host: "github.com",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(identity.name, "octocat");
+    assert.strictEqual(identity.email, "octocat@users.noreply.github.com");
+  });
   it.effect("isolates tokens by session", () =>
     Effect.gen(function* () {
       const store = yield* GitHubCredentialStore.GitHubCredentialStore;
