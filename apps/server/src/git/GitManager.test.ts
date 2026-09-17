@@ -2167,6 +2167,42 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("featureBranch checkouts a new branch before push without committing", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+      NodeFS.writeFileSync(NodePath.join(repoDir, "ahead.txt"), "ahead\n");
+      yield* runGit(repoDir, ["add", "ahead.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Ahead of origin"]);
+
+      const { manager } = yield* makeManager();
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "push",
+        featureBranch: true,
+      });
+
+      expect(result.branch.status).toBe("created");
+      expect(result.branch.name).toBe("feature/update");
+      expect(result.commit.status).toBe("skipped_not_requested");
+      expect(result.push.status).toBe("pushed");
+      expect(result.pr.status).toBe("skipped_not_requested");
+      expect(
+        yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
+          Effect.map((output) => output.stdout.trim()),
+        ),
+      ).toBe("feature/update");
+      expect(
+        yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "@{upstream}"]).pipe(
+          Effect.map((output) => output.stdout.trim()),
+        ),
+      ).toBe("origin/feature/update");
+    }),
+  );
+
   it.effect("pushes existing commits without committing dirty worktree changes", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -2245,6 +2281,57 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         ghCalls.some((call) =>
           call.includes("pr create --base main --head feature/create-pr-only"),
         ),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("featureBranch checkouts a new branch before create_pr without committing", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+      NodeFS.writeFileSync(NodePath.join(repoDir, "pr-ahead.txt"), "pr ahead\n");
+      yield* runGit(repoDir, ["add", "pr-ahead.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "PR ahead of origin"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            "[]",
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 414,
+                title: "PR ahead of origin",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/414",
+                baseRefName: "main",
+                headRefName: "feature/update",
+              },
+            ]),
+          ],
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+        featureBranch: true,
+      });
+
+      expect(result.branch.status).toBe("created");
+      expect(result.branch.name).toBe("feature/update");
+      expect(result.commit.status).toBe("skipped_not_requested");
+      expect(result.push.status).toBe("pushed");
+      expect(result.pr.status).toBe("created");
+      expect(
+        yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
+          Effect.map((output) => output.stdout.trim()),
+        ),
+      ).toBe("feature/update");
+      expect(
+        ghCalls.some((call) => call.includes("pr create --base main --head feature/update")),
       ).toBe(true);
     }),
   );

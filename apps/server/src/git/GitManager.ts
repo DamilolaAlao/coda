@@ -2074,13 +2074,34 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.ensuring(invalidateStatus(input.cwd)));
   });
 
+  const createAndCheckoutFeatureBranch = Effect.fn("createAndCheckoutFeatureBranch")(function* (
+    cwd: string,
+    preferredBranch?: string,
+  ) {
+    const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd);
+    const resolvedBranch = resolveAutoFeatureBranchName(existingBranchNames, preferredBranch);
+    yield* gitCore.createRef({ cwd, refName: resolvedBranch });
+    yield* Effect.scoped(gitCore.switchRef({ cwd, refName: resolvedBranch }));
+    return resolvedBranch;
+  });
+
   const runFeatureBranchStep = Effect.fn("runFeatureBranchStep")(function* (
     settings: SourceControlTextGenerationSettings,
     cwd: string,
     branch: string | null,
-    commitMessage?: string,
-    filePaths?: readonly string[],
+    commitMessage: string | undefined,
+    filePaths: readonly string[] | undefined,
+    options: { readonly deriveNameFromCommit: boolean },
   ) {
+    if (!options.deriveNameFromCommit) {
+      const resolvedBranch = yield* createAndCheckoutFeatureBranch(cwd);
+      return {
+        branchStep: { status: "created" as const, name: resolvedBranch },
+        resolvedCommitMessage: undefined,
+        resolvedCommitSuggestion: undefined,
+      };
+    }
+
     const suggestion = yield* resolveCommitAndBranchSuggestion({
       cwd,
       branch,
@@ -2098,11 +2119,7 @@ export const make = Effect.gen(function* () {
     }
 
     const preferredBranch = suggestion.branch ?? sanitizeFeatureBranchName(suggestion.subject);
-    const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd);
-    const resolvedBranch = resolveAutoFeatureBranchName(existingBranchNames, preferredBranch);
-
-    yield* gitCore.createRef({ cwd, refName: resolvedBranch });
-    yield* Effect.scoped(gitCore.switchRef({ cwd, refName: resolvedBranch }));
+    const resolvedBranch = yield* createAndCheckoutFeatureBranch(cwd, preferredBranch);
 
     return {
       branchStep: { status: "created" as const, name: resolvedBranch },
@@ -2127,16 +2144,10 @@ export const make = Effect.gen(function* () {
           input.action === "commit_push" ||
           input.action === "commit_push_pr" ||
           (input.action === "create_pr" &&
-            (!initialStatus.hasUpstream || initialStatus.aheadCount > 0));
+            (input.featureBranch === true ||
+              !initialStatus.hasUpstream ||
+              initialStatus.aheadCount > 0));
         const wantsPr = input.action === "create_pr" || input.action === "commit_push_pr";
-
-        if (input.featureBranch && !wantsCommit) {
-          return yield* new GitManagerError({
-            operation: "runStackedAction",
-            cwd: input.cwd,
-            detail: "Feature-branch checkout is only supported for commit actions.",
-          });
-        }
         if (input.action === "create_pr" && initialStatus.hasWorkingTreeChanges) {
           return yield* new GitManagerError({
             operation: "runStackedAction",
@@ -2217,6 +2228,7 @@ export const make = Effect.gen(function* () {
             initialStatus.branch,
             input.commitMessage,
             input.filePaths,
+            { deriveNameFromCommit: wantsCommit },
           );
           branchStep = result.branchStep;
           commitMessageForStep = result.resolvedCommitMessage;

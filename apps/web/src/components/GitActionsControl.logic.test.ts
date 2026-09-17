@@ -944,6 +944,17 @@ describe("buildGitActionProgressStages", () => {
     assert.deepEqual(stages, ["Pushing to origin/feature/test..."]);
   });
 
+  it("includes feature-ref progress before push when checking out a feature ref", () => {
+    const stages = buildGitActionProgressStages({
+      action: "push",
+      hasCustomCommitMessage: false,
+      hasWorkingTreeChanges: false,
+      pushTarget: "origin/feature/update",
+      featureBranch: true,
+    });
+    assert.deepEqual(stages, ["Preparing feature ref...", "Pushing to origin/feature/update..."]);
+  });
+
   it("shows push and PR progress for create-pr actions that still need a push", () => {
     const stages = buildGitActionProgressStages({
       action: "create_pr",
@@ -954,6 +965,24 @@ describe("buildGitActionProgressStages", () => {
     });
     assert.deepEqual(stages, [
       "Pushing to origin/feature/test...",
+      "Preparing PR...",
+      "Generating PR content...",
+      "Creating pull request...",
+    ]);
+  });
+
+  it("includes feature-ref progress before create-pr when checking out a feature ref", () => {
+    const stages = buildGitActionProgressStages({
+      action: "create_pr",
+      hasCustomCommitMessage: false,
+      hasWorkingTreeChanges: false,
+      pushTarget: "origin/feature/update",
+      featureBranch: true,
+      shouldPushBeforePr: true,
+    });
+    assert.deepEqual(stages, [
+      "Preparing feature ref...",
+      "Pushing to origin/feature/update...",
       "Preparing PR...",
       "Generating PR content...",
       "Creating pull request...",

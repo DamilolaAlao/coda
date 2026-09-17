@@ -70,10 +70,12 @@ export function buildGitActionProgressStages(input: {
   ];
 
   if (input.action === "push") {
-    return [pushStage];
+    return [...branchStages, pushStage];
   }
   if (input.action === "create_pr") {
-    return input.shouldPushBeforePr ? [pushStage, ...prStages] : prStages;
+    return input.shouldPushBeforePr
+      ? [...branchStages, pushStage, ...prStages]
+      : [...branchStages, ...prStages];
   }
 
   const shouldIncludeCommitStages = input.action === "commit" || input.hasWorkingTreeChanges;

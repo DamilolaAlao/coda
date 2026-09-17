@@ -1306,7 +1306,7 @@ export default function GitActionsControl({
         terminology: changeRequestTerminology,
         shouldPushBeforePr:
           action === "create_pr" &&
-          (!actionStatus?.hasUpstream || (actionStatus?.aheadCount ?? 0) > 0),
+          (featureBranch || !actionStatus?.hasUpstream || (actionStatus?.aheadCount ?? 0) > 0),
       });
       const scopedToastData = threadToastData ? { ...threadToastData } : undefined;
       const actionId = randomUUID();
