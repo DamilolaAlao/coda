@@ -95,6 +95,18 @@ const githubHttpsExtraHeader = (token: string): readonly [string, string] => [
   `AUTHORIZATION: basic ${Encoding.encodeBase64(`x-access-token:${token}`)}`,
 ];
 
+const githubHttpsInsteadOfPairs = (): ReadonlyArray<readonly [string, string]> => [
+  [`url.https://${GITHUB_HOST}/.insteadOf`, `git@${GITHUB_HOST}:`],
+  [`url.https://${GITHUB_HOST}/.insteadOf`, `ssh://git@${GITHUB_HOST}/`],
+];
+
+const githubHttpsAuthConfigPairs = (
+  token: string,
+): ReadonlyArray<readonly [string, string]> => [
+  githubHttpsExtraHeader(token),
+  ...githubHttpsInsteadOfPairs(),
+];
+
 const githubIdentityConfigPairs = (
   identity: GitHubCommitIdentity,
 ): ReadonlyArray<readonly [string, string]> => [
@@ -108,7 +120,7 @@ export const githubHttpsCloneEnv = (token: string): NodeJS.ProcessEnv => ({
   GIT_ASKPASS: "",
   SSH_ASKPASS: "",
   SSH_ASKPASS_REQUIRE: "never",
-  ...gitConfigEnv([githubHttpsExtraHeader(token)]),
+  ...gitConfigEnv(githubHttpsAuthConfigPairs(token)),
 });
 
 export const githubChildProcessEnv = (
@@ -118,7 +130,7 @@ export const githubChildProcessEnv = (
   const identity = githubGitIdentity(record);
   const pairs: Array<readonly [string, string]> = [];
   if (options?.httpsAuth !== false) {
-    pairs.push(githubHttpsExtraHeader(record.token));
+    pairs.push(...githubHttpsAuthConfigPairs(record.token));
   }
   pairs.push(...githubIdentityConfigPairs(identity));
   return {

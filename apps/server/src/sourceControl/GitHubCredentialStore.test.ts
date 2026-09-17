@@ -63,10 +63,14 @@ const credential = (
 describe("GitHubCredentialStore", () => {
   it("encodes clone credentials as an HTTP extraheader without putting the token in argv", () => {
     const env = GitHubCredentialStore.githubHttpsCloneEnv("gho_secret");
-    assert.strictEqual(env.GIT_CONFIG_COUNT, "1");
+    assert.strictEqual(env.GIT_CONFIG_COUNT, "3");
     assert.strictEqual(env.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
     const encoded = env.GIT_CONFIG_VALUE_0?.slice("AUTHORIZATION: basic ".length) ?? "";
     assert.strictEqual(Buffer.from(encoded, "base64").toString("utf8"), "x-access-token:gho_secret");
+    assert.strictEqual(env.GIT_CONFIG_KEY_1, "url.https://github.com/.insteadOf");
+    assert.strictEqual(env.GIT_CONFIG_VALUE_1, "git@github.com:");
+    assert.strictEqual(env.GIT_CONFIG_KEY_2, "url.https://github.com/.insteadOf");
+    assert.strictEqual(env.GIT_CONFIG_VALUE_2, "ssh://git@github.com/");
     assert.strictEqual(env.GIT_TERMINAL_PROMPT, "0");
   });
 
@@ -105,10 +109,14 @@ describe("GitHubCredentialStore", () => {
     assert.strictEqual(env.GIT_COMMITTER_NAME, "The Octocat");
     assert.strictEqual(env.GIT_COMMITTER_EMAIL, "42+octocat@users.noreply.github.com");
     assert.strictEqual(env.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
-    assert.strictEqual(env.GIT_CONFIG_KEY_1, "user.name");
-    assert.strictEqual(env.GIT_CONFIG_VALUE_1, "The Octocat");
-    assert.strictEqual(env.GIT_CONFIG_KEY_2, "user.email");
-    assert.strictEqual(env.GIT_CONFIG_VALUE_2, "42+octocat@users.noreply.github.com");
+    assert.strictEqual(env.GIT_CONFIG_KEY_1, "url.https://github.com/.insteadOf");
+    assert.strictEqual(env.GIT_CONFIG_VALUE_1, "git@github.com:");
+    assert.strictEqual(env.GIT_CONFIG_KEY_2, "url.https://github.com/.insteadOf");
+    assert.strictEqual(env.GIT_CONFIG_VALUE_2, "ssh://git@github.com/");
+    assert.strictEqual(env.GIT_CONFIG_KEY_3, "user.name");
+    assert.strictEqual(env.GIT_CONFIG_VALUE_3, "The Octocat");
+    assert.strictEqual(env.GIT_CONFIG_KEY_4, "user.email");
+    assert.strictEqual(env.GIT_CONFIG_VALUE_4, "42+octocat@users.noreply.github.com");
     assert.strictEqual(env.GH_TOKEN, "gho_secret");
   });
 

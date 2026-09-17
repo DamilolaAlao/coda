@@ -90,9 +90,9 @@ Run a quick **Rescan** after setting up a new machine or changing credentials.
 3. Verify GitHub shows as authenticated for this client. Use **Disconnect** on the same page to
    remove this client's GitHub account. That does not sign out a host-level `gh auth login`.
 
-You can now clone, publish, create pull requests, and push over HTTPS using this client's
-GitHub sign-in. Hosted Coda servers do not use SSH keys; Connect GitHub is what authenticates
-`git push` and `git fetch`.
+You can now clone, publish, create pull requests, and push using this client's GitHub sign-in.
+Hosted Coda servers do not use SSH keys. Connect GitHub authenticates `git push` and `git fetch`
+over HTTPS, including when the repo remote is an `git@github.com` SSH URL.
 
 ### Git author name and email
 

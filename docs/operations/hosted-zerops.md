@@ -123,4 +123,5 @@ Git `user.name` / `user.email` for hosted commits live in `/srv/coda-data/coda/.
 that client's commits (Git actions, agents, and terminals) as the GitHub user with
 `id+login@users.noreply.github.com`. If GitHub is not connected and git identity is unset,
 Coda authors commits as `Coda <coda@users.noreply.github.com>` so they still succeed. Push
-and fetch use the per-session GitHub OAuth token, not SSH keys.
+and fetch use the per-session GitHub OAuth token over HTTPS, including when the repo remote is
+SSH (`git@github.com`).

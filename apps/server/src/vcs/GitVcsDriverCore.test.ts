@@ -182,9 +182,11 @@ it.effect("attaches the tenant GitHub token to network git commands", () => {
       if (!ChildProcess.isStandardCommand(command)) {
         return assert.fail("expected a standard Git command");
       }
-      const gitConfigKeys = [0, 1, 2]
-        .map((index) => command.options.env?.[`GIT_CONFIG_KEY_${index}`])
-        .filter((value): value is string => typeof value === "string");
+      const configCount = Number(command.options.env?.GIT_CONFIG_COUNT ?? 0);
+      const gitConfigKeys = Array.from({ length: configCount }, (_, index) => {
+        const key = command.options.env?.[`GIT_CONFIG_KEY_${index}`];
+        return typeof key === "string" ? key : undefined;
+      }).filter((value): value is string => value !== undefined);
       commands.push({
         args: command.args,
         gitConfigKeys,
@@ -247,6 +249,8 @@ it.effect("attaches the tenant GitHub token to network git commands", () => {
         args: ["push", "-u", "origin", "HEAD"],
         gitConfigKeys: [
           "http.https://github.com/.extraheader",
+          "url.https://github.com/.insteadOf",
+          "url.https://github.com/.insteadOf",
           "user.name",
           "user.email",
         ],
