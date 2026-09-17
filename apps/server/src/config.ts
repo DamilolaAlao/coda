@@ -45,6 +45,7 @@ export interface ServerDerivedPaths {
   readonly previewSessionsPath: string;
   readonly backgroundAppsPath: string;
   readonly secretsDir: string;
+  readonly occupantsDir: string;
 }
 
 export interface DeriveServerPathsOptions {
@@ -133,6 +134,7 @@ export const deriveServerPaths = Effect.fn(function* (
     previewSessionsPath: join(stateDir, "preview-sessions.json"),
     backgroundAppsPath: join(stateDir, "background-apps.json"),
     secretsDir: join(stateDir, "secrets"),
+    occupantsDir: join(stateDir, "occupants"),
   };
 });
 
@@ -148,6 +150,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.terminalLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
+      fs.makeDirectory(derivedPaths.occupantsDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),
       fs.makeDirectory(derivedPaths.providerStatusCacheDir, { recursive: true }),
@@ -156,6 +159,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
     ],
     { concurrency: "unbounded" },
   );
+  yield* fs.chmod(derivedPaths.occupantsDir, 0o700).pipe(Effect.catch(() => Effect.void));
 });
 
 const makeTest = Effect.fn("ServerConfig.makeTest")(function* (

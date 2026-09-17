@@ -1,5 +1,6 @@
 import * as Layer from "effect/Layer";
 
+import { layer as OccupantDataStoreLayer } from "../persistence/Layers/OccupantDataStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationEngineLive } from "./Layers/OrchestrationEngine.ts";
@@ -32,5 +33,8 @@ export const OrchestrationInfrastructureLayerLive = Layer.mergeAll(
 
 export const OrchestrationLayerLive = Layer.mergeAll(
   OrchestrationInfrastructureLayerLive,
-  OrchestrationEngineLive.pipe(Layer.provide(OrchestrationInfrastructureLayerLive)),
+  OrchestrationEngineLive.pipe(
+    Layer.provide(OrchestrationInfrastructureLayerLive),
+    Layer.provideMerge(OccupantDataStoreLayer),
+  ),
 );

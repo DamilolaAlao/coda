@@ -33,9 +33,20 @@ Do not point this at the developer’s live `~/.t3` environment.
 - Filesystem browse of another session’s workspace root (treated as not found; sibling folders
   used to create a new project stay visible)
 
+## Occupant sidecar
+
+After a successful host commit, Coda best-effort copies that occupant’s events,
+receipts, and projection rows into `userdata/occupants/<owner>/state.sqlite`.
+The host `state.sqlite` stays the source of truth. Isolation still filters the
+host read model; the sidecar is for backup, export, and delete of one GitHub
+occupant’s rows. Replica failures are logged and never fail dispatch. Isolation
+off, or events with no owner, skip the copy. Auth tables, projector watermarks,
+and provider session runtime stay on the host only.
+
 ## What it does not isolate
 
-- The event log, command receipts, and projection tables themselves (one SQLite file)
+- The live event log, command receipts, and projection tables (one host SQLite file;
+  occupant sidecars are replicas, not a second writer)
 - Provider processes and the host machine
 - GitHub OAuth tokens (still stored per pairing session via `GitHubTenant`; occupancy is the GitHub
   user id)
@@ -59,6 +70,8 @@ The decider stays IO-free. Isolation is:
 5. Reject file/git/terminal RPCs whose cwd or thread is not owned.
 6. On GitHub OAuth, rewrite this pairing session’s projection `owner_session_id` from the session
    id to `github:<id>`.
+7. After a successful host commit, best-effort copy that occupant’s rows into
+   `userdata/occupants/<owner>/state.sqlite`. The copy must not fail dispatch.
 
 Reactors and other server-side work do not set `ClientSessionScope`, so they still see the full
 read model. Unauthorized client access looks like not-found, not forbidden.
