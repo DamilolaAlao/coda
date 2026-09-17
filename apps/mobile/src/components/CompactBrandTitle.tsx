@@ -43,7 +43,7 @@ export function CompactBrandTitle(
   return (
     <View
       aria-level={1}
-      accessibilityLabel="Coda, Threads"
+      accessibilityLabel="coda, Threads"
       accessible
       role="heading"
       style={{
@@ -61,7 +61,7 @@ export function CompactBrandTitle(
           letterSpacing: -0.5,
         }}
       >
-        Coda
+        coda
       </Text>
       <View
         style={{

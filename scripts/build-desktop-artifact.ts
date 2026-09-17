@@ -1970,8 +1970,8 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "Coda (Nightly)"
-    : (desktopPackageJson.productName ?? "Coda");
+    ? "coda (Nightly)"
+    : (desktopPackageJson.productName ?? "coda");
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -2026,7 +2026,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       category: "public.app-category.developer-tools",
       protocols: [
         {
-          name: "Coda",
+          name: "coda",
           schemes: ["t3code", "t3code-dev"],
         },
       ],
@@ -2050,7 +2050,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // t3code:// OAuth callbacks to the app.
       protocols: [
         {
-          name: "Coda",
+          name: "coda",
           schemes: ["t3code", "t3code-dev"],
         },
       ],

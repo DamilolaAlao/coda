@@ -1,4 +1,4 @@
-// This file mostly exists because we want dev mode to say "Coda (Dev)" instead of "electron"
+// This file mostly exists because we want dev mode to say "coda (Dev)" instead of "electron"
 
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -15,7 +15,7 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-export const APP_DISPLAY_NAME = isDevelopment ? "Coda (Dev)" : "Coda (Alpha)";
+export const APP_DISPLAY_NAME = isDevelopment ? "coda (Dev)" : "coda (Alpha)";
 export const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
   : "com.t3tools.t3code";

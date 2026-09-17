@@ -88,7 +88,7 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
       )}
       to="/"
     >
-      <span className="truncate text-sm font-semibold tracking-tight">Coda</span>
+      <span className="truncate text-sm font-semibold tracking-tight">coda</span>
     </Link>
   );
 }
