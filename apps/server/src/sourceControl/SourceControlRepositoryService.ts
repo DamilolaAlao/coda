@@ -113,11 +113,11 @@ function selectRemoteUrl(
   protocol: SourceControlCloneProtocol | undefined,
 ): string {
   switch (protocol ?? "auto") {
-    case "https":
-      return urls.url;
     case "ssh":
-    case "auto":
       return urls.sshUrl;
+    case "https":
+    case "auto":
+      return urls.url;
   }
 }
 
@@ -130,10 +130,15 @@ function publicCloneFailureDetail(stderr: string, isGitHub: boolean): string {
   if (
     detail.includes("permission denied") ||
     detail.includes("could not read from remote") ||
+    detail.includes("could not read username") ||
+    detail.includes("terminal prompts disabled") ||
     detail.includes("authentication failed") ||
     detail.includes("invalid username or token") ||
+    detail.includes("failed to execute prompt script") ||
+    detail.includes("askpass") ||
     detail.includes("host key verification failed") ||
-    detail.includes("no such identity")
+    detail.includes("no such identity") ||
+    detail.includes("http 401")
   ) {
     return isGitHub ? GITHUB_CLONE_AUTH_DETAIL : GITHUB_CLONE_FAILED_DETAIL;
   }
@@ -208,23 +213,25 @@ export const make = Effect.gen(function* () {
       if (providerKind !== "github") {
         return { repositories: [] };
       }
-      const urls = yield* github.searchRepositories({
-        cwd: input.cwd ?? config.cwd,
-        query: input.query.trim(),
-        limit: input.limit ?? 10,
-        ownerOnly: input.ownerOnly,
-      }).pipe(
-        Effect.mapError(
-          (error) =>
-            new SourceControlProviderError({
-              provider: "github",
-              operation: "searchRepositories",
-              cwd: input.cwd ?? config.cwd,
-              detail: error.detail,
-              cause: error,
-            }),
-        ),
-      );
+      const urls = yield* github
+        .searchRepositories({
+          cwd: input.cwd ?? config.cwd,
+          query: input.query.trim(),
+          limit: input.limit ?? 10,
+          ownerOnly: input.ownerOnly,
+        })
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "github",
+                operation: "searchRepositories",
+                cwd: input.cwd ?? config.cwd,
+                detail: error.detail,
+                cause: error,
+              }),
+          ),
+        );
       return {
         repositories: urls.map((entry) => toRepositoryInfo("github", entry)),
       };
@@ -324,10 +331,12 @@ export const make = Effect.gen(function* () {
 
     let cloneUrl = remoteUrl;
     let cloneEnv: NodeJS.ProcessEnv | undefined;
-    if (githubLocator && Option.isSome(githubCredential) && input.protocol !== "ssh") {
+    if (githubLocator && input.protocol !== "ssh") {
       cloneUrl = githubHttpsRemoteUrl(githubLocator);
       remoteUrl = cloneUrl;
-      cloneEnv = githubHttpsCloneEnv(githubCredential.value.token);
+      if (Option.isSome(githubCredential)) {
+        cloneEnv = githubHttpsCloneEnv(githubCredential.value.token);
+      }
       if (provider === "unknown") {
         provider = "github";
       }

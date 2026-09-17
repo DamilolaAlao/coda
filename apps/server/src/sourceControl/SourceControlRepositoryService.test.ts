@@ -282,13 +282,13 @@ it.effect("clones a looked-up repository into the requested destination", () =>
 
       assert.deepStrictEqual(result, {
         cwd: destinationPath,
-        remoteUrl: CLONE_URLS.url,
+        remoteUrl: "https://github.com/octocat/t3code.git",
         repository: { provider: "github", ...CLONE_URLS },
       });
       assert.deepStrictEqual(cloneCalls, [
         {
           cwd: parent,
-          args: ["clone", CLONE_URLS.url, "t3code"],
+          args: ["clone", "https://github.com/octocat/t3code.git", "t3code"],
         },
       ]);
     }).pipe(
@@ -325,13 +325,13 @@ it.effect("clones into a child directory when the destination already has files"
 
       assert.deepStrictEqual(result, {
         cwd: `${parent}/t3code`,
-        remoteUrl: CLONE_URLS.url,
+        remoteUrl: "https://github.com/octocat/t3code.git",
         repository: null,
       });
       assert.deepStrictEqual(cloneCalls, [
         {
           cwd: parent,
-          args: ["clone", CLONE_URLS.url, "t3code"],
+          args: ["clone", "https://github.com/octocat/t3code.git", "t3code"],
         },
       ]);
     }).pipe(
@@ -442,6 +442,43 @@ it.effect("clones GitHub repositories over HTTPS with the tenant token", () =>
     assert.match(cloneCalls[0]?.env?.GIT_CONFIG_VALUE_0 ?? "", /^AUTHORIZATION: basic /);
     assert.ok(!cloneCalls[0]?.args.includes(TENANT_TOKEN));
   }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("maps GitHub HTTPS prompt failures to the connect-GitHub error", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const parent = yield* fs.makeTempDirectoryScoped({
+      prefix: "t3-source-control-clone-prompt-fail-",
+    });
+    const service = yield* SourceControlRepositoryService.SourceControlRepositoryService;
+    const error = yield* Effect.flip(
+      service.cloneRepository({
+        remoteUrl: CLONE_URLS.url,
+        destinationPath: `${parent}/t3code`,
+      }),
+    );
+
+    assert.strictEqual(error.operation, "cloneRepository");
+    assert.strictEqual(
+      error.detail,
+      "Could not clone that GitHub repository. Connect GitHub in Settings, then try again.",
+    );
+  }).pipe(
+    Effect.provide(
+      makeLayer({
+        git: {
+          execute: () =>
+            Effect.succeed(
+              processOutput({
+                exitCode: ChildProcessSpawner.ExitCode(128),
+                stderr:
+                  "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n",
+              }),
+            ),
+        },
+      }),
+    ),
+  ),
 );
 
 it.effect("surfaces GitHub SSH clone failures instead of a generic error", () =>

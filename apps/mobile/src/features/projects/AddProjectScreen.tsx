@@ -30,7 +30,15 @@ import { CommandId, type EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { CommonActions, StackActions, useNavigation } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Alert, AppState, Linking, Pressable, ScrollView, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  AppState,
+  Linking,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
@@ -236,10 +244,7 @@ function ProjectPathInput(props: {
   );
 }
 
-function useBrowsePathInput(
-  environment: EnvironmentOption | null,
-  cloneRef?: string | null,
-) {
+function useBrowsePathInput(environment: EnvironmentOption | null, cloneRef?: string | null) {
   const environmentId = environment?.environmentId ?? null;
   const environmentBaseDirectory = environment?.baseDirectory ?? null;
   const initialQuery = getAddProjectCloneDestinationQuery({
@@ -902,8 +907,10 @@ export function AddProjectDestinationScreen(props: {
   const createProject = useCreateProject(environment);
   const remoteUrl = stringParam(props.remoteUrl);
   const repositoryTitle = stringParam(props.repositoryTitle);
-  const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } =
-    useBrowsePathInput(environment, remoteUrl);
+  const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } = useBrowsePathInput(
+    environment,
+    remoteUrl,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -926,6 +933,7 @@ export function AddProjectDestinationScreen(props: {
       input: {
         remoteUrl,
         destinationPath: resolved.path,
+        protocol: "https",
       },
     });
     if (AsyncResult.isFailure(cloneResult)) {

@@ -90,6 +90,56 @@ const gitConfigEnv = (pairs: ReadonlyArray<readonly [string, string]>): NodeJS.P
   return env;
 };
 
+const gitConfigPairsFromEnv = (
+  env: NodeJS.ProcessEnv | undefined,
+): ReadonlyArray<readonly [string, string]> => {
+  if (env === undefined) {
+    return [];
+  }
+  const count = Number(env.GIT_CONFIG_COUNT ?? 0);
+  if (!Number.isInteger(count) || count <= 0) {
+    return [];
+  }
+  const pairs: Array<readonly [string, string]> = [];
+  for (let index = 0; index < count; index += 1) {
+    const key = env[`GIT_CONFIG_KEY_${index}`];
+    const value = env[`GIT_CONFIG_VALUE_${index}`];
+    if (typeof key === "string" && typeof value === "string") {
+      pairs.push([key, value]);
+    }
+  }
+  return pairs;
+};
+
+/** Collapse GIT_CONFIG_* from several env layers so overlay cannot drop extraheader keys. */
+export const mergeGitConfigEnv = (
+  ...envs: ReadonlyArray<NodeJS.ProcessEnv | undefined>
+): NodeJS.ProcessEnv => {
+  const pairs: Array<readonly [string, string]> = [];
+  const seen = new Set<string>();
+  for (const env of envs) {
+    for (const [key, value] of gitConfigPairsFromEnv(env)) {
+      const id = `${key}\0${value}`;
+      if (seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      pairs.push([key, value]);
+    }
+  }
+  return gitConfigEnv(pairs);
+};
+
+export const stripGitConfigEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  const next: NodeJS.ProcessEnv = { ...env };
+  for (const key of Object.keys(next)) {
+    if (key === "GIT_CONFIG_COUNT" || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)) {
+      delete next[key];
+    }
+  }
+  return next;
+};
+
 const githubHttpsExtraHeader = (token: string): readonly [string, string] => [
   `http.https://${GITHUB_HOST}/.extraheader`,
   `AUTHORIZATION: basic ${Encoding.encodeBase64(`x-access-token:${token}`)}`,
@@ -100,9 +150,7 @@ const githubHttpsInsteadOfPairs = (): ReadonlyArray<readonly [string, string]> =
   [`url.https://${GITHUB_HOST}/.insteadOf`, `ssh://git@${GITHUB_HOST}/`],
 ];
 
-const githubHttpsAuthConfigPairs = (
-  token: string,
-): ReadonlyArray<readonly [string, string]> => [
+const githubHttpsAuthConfigPairs = (token: string): ReadonlyArray<readonly [string, string]> => [
   githubHttpsExtraHeader(token),
   ...githubHttpsInsteadOfPairs(),
 ];
@@ -117,8 +165,6 @@ const githubIdentityConfigPairs = (
 /** Git HTTPS clone env that authenticates without putting the token in argv. */
 export const githubHttpsCloneEnv = (token: string): NodeJS.ProcessEnv => ({
   GIT_TERMINAL_PROMPT: "0",
-  GIT_ASKPASS: "",
-  SSH_ASKPASS: "",
   SSH_ASKPASS_REQUIRE: "never",
   ...gitConfigEnv(githubHttpsAuthConfigPairs(token)),
 });
@@ -135,8 +181,6 @@ export const githubChildProcessEnv = (
   pairs.push(...githubIdentityConfigPairs(identity));
   return {
     GIT_TERMINAL_PROMPT: "0",
-    GIT_ASKPASS: "",
-    SSH_ASKPASS: "",
     SSH_ASKPASS_REQUIRE: "never",
     GIT_AUTHOR_NAME: identity.name,
     GIT_AUTHOR_EMAIL: identity.email,
@@ -211,8 +255,9 @@ export const resolveGitHubChildProcessEnv = (
 export const overlayGitHubChildProcessEnv = (cwd: string, overlay?: NodeJS.ProcessEnv) =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(GitHubCredentialStore);
-    const github =
-      Option.isNone(store) ? {} : yield* resolveGitHubChildProcessEnv(store.value, cwd);
+    const github = Option.isNone(store)
+      ? {}
+      : yield* resolveGitHubChildProcessEnv(store.value, cwd);
     return childProcessEnvironment({ ...overlay, ...github });
   });
 

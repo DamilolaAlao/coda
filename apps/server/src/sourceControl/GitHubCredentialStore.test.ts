@@ -66,12 +66,38 @@ describe("GitHubCredentialStore", () => {
     assert.strictEqual(env.GIT_CONFIG_COUNT, "3");
     assert.strictEqual(env.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
     const encoded = env.GIT_CONFIG_VALUE_0?.slice("AUTHORIZATION: basic ".length) ?? "";
-    assert.strictEqual(Buffer.from(encoded, "base64").toString("utf8"), "x-access-token:gho_secret");
+    assert.strictEqual(
+      Buffer.from(encoded, "base64").toString("utf8"),
+      "x-access-token:gho_secret",
+    );
     assert.strictEqual(env.GIT_CONFIG_KEY_1, "url.https://github.com/.insteadOf");
     assert.strictEqual(env.GIT_CONFIG_VALUE_1, "git@github.com:");
     assert.strictEqual(env.GIT_CONFIG_KEY_2, "url.https://github.com/.insteadOf");
     assert.strictEqual(env.GIT_CONFIG_VALUE_2, "ssh://git@github.com/");
     assert.strictEqual(env.GIT_TERMINAL_PROMPT, "0");
+  });
+
+  it("merges GIT_CONFIG layers without dropping extraheader", () => {
+    const extraheader = GitHubCredentialStore.githubHttpsCloneEnv("gho_secret");
+    const identity = GitHubCredentialStore.githubChildProcessEnv(
+      {
+        version: 1,
+        sessionId: SESSION_A,
+        token: "gho_secret",
+        tokenType: "bearer",
+        scope: "repo",
+        account: "octocat",
+        host: "github.com",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      { httpsAuth: false, processToken: false },
+    );
+    const merged = GitHubCredentialStore.mergeGitConfigEnv(extraheader, identity);
+    assert.strictEqual(merged.GIT_CONFIG_COUNT, "5");
+    assert.strictEqual(merged.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
+    assert.strictEqual(merged.GIT_CONFIG_KEY_3, "user.name");
+    assert.strictEqual(merged.GIT_CONFIG_VALUE_3, "octocat");
   });
 
   it("authors commits as the GitHub user, not a host gitconfig fallback", () => {

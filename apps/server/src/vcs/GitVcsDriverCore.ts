@@ -31,10 +31,12 @@ import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import {
-          GitHubCredentialStore,
-          githubChildProcessEnv,
-          resolveGitHubProcessCredential,
-        } from "../sourceControl/GitHubCredentialStore.ts";
+  GitHubCredentialStore,
+  githubChildProcessEnv,
+  mergeGitConfigEnv,
+  resolveGitHubProcessCredential,
+  stripGitConfigEnv,
+} from "../sourceControl/GitHubCredentialStore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 import {
   parseRemoteNames,
@@ -840,10 +842,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           if (Option.isNone(store)) {
             return {};
           }
-          const credential = yield* resolveGitHubProcessCredential(
-            store.value,
-            commandInput.cwd,
-          );
+          const credential = yield* resolveGitHubProcessCredential(store.value, commandInput.cwd);
           if (Option.isNone(credential)) {
             return {};
           }
@@ -857,10 +856,13 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             ChildProcess.make("git", commandInput.args, {
               cwd: commandInput.cwd,
               env: {
-                ...process.env,
-                ...input.env,
-                ...githubAuthEnv,
-                ...trace2Monitor.env,
+                ...stripGitConfigEnv({
+                  ...process.env,
+                  ...input.env,
+                  ...githubAuthEnv,
+                  ...trace2Monitor.env,
+                }),
+                ...mergeGitConfigEnv(process.env, input.env, githubAuthEnv),
               },
             }),
           )
