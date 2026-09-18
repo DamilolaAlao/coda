@@ -45,6 +45,8 @@ const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
 const DESKTOP_RENDERER_ORIGINS = ["t3code://app", "t3code-dev://app"];
 const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+const HOSTED_APEX_HOSTNAME = "iointel.dev";
+const HOSTED_CANONICAL_ORIGIN = "https://www.iointel.dev";
 
 export function assetResponseHeaders(filePath: string): Record<string, string> {
   return {
@@ -100,6 +102,33 @@ export function resolveDevRedirectUrl(devUrl: URL, requestUrl: URL): string {
   redirectUrl.hash = requestUrl.hash;
   return redirectUrl.toString();
 }
+
+export function resolveHostedCanonicalRedirectUrl(requestUrl: URL): string | null {
+  if (requestUrl.hostname.toLowerCase() !== HOSTED_APEX_HOSTNAME) {
+    return null;
+  }
+  const redirectUrl = new URL(HOSTED_CANONICAL_ORIGIN);
+  redirectUrl.pathname = requestUrl.pathname;
+  redirectUrl.search = requestUrl.search;
+  redirectUrl.hash = requestUrl.hash;
+  return redirectUrl.toString();
+}
+
+export const hostedCanonicalRedirectLayer = HttpRouter.middleware(
+  (httpEffect) =>
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const requestUrl = HttpServerRequest.toURL(request);
+      if (Option.isSome(requestUrl)) {
+        const redirectUrl = resolveHostedCanonicalRedirectUrl(requestUrl.value);
+        if (redirectUrl) {
+          return HttpServerResponse.redirect(redirectUrl, { status: 308 });
+        }
+      }
+      return yield* httpEffect;
+    }),
+  { global: true },
+);
 
 const STATIC_ASSET_EXTENSIONS = new Set([
   ".avif",

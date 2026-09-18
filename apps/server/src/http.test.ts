@@ -5,6 +5,7 @@ import {
   assetResponseHeaders,
   isLoopbackHostname,
   resolveDevRedirectUrl,
+  resolveHostedCanonicalRedirectUrl,
   shouldSpaFallbackMissingFile,
   staticCacheHeaders,
   staticFileCacheControl,
@@ -32,6 +33,21 @@ describe("http dev routing", () => {
     expect(resolveDevRedirectUrl(devUrl, requestUrl)).toBe(
       "http://127.0.0.1:5173/pair?token=test-token",
     );
+  });
+});
+
+describe("hosted canonical routing", () => {
+  it("redirects the apex domain to www while preserving path and query", () => {
+    expect(
+      resolveHostedCanonicalRedirectUrl(new URL("https://iointel.dev/pair?token=test-token")),
+    ).toBe("https://www.iointel.dev/pair?token=test-token");
+  });
+
+  it("leaves other hosts unchanged", () => {
+    expect(resolveHostedCanonicalRedirectUrl(new URL("https://www.iointel.dev/settings"))).toBe(
+      null,
+    );
+    expect(resolveHostedCanonicalRedirectUrl(new URL("http://localhost:3773/"))).toBe(null);
   });
 });
 

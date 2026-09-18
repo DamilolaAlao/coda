@@ -19,6 +19,7 @@ import {
   staticAndDevRouteLayer,
   browserApiCorsLayer,
   httpCompressionLayer,
+  hostedCanonicalRedirectLayer,
 } from "./http.ts";
 import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
@@ -486,6 +487,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   Layer.provide(commandReadinessLayer),
   Layer.provide(browserApiCorsLayer),
   Layer.provide(httpCompressionLayer),
+  Layer.provide(hostedCanonicalRedirectLayer),
 );
 
 export const makeServerLayer = Layer.unwrap(
