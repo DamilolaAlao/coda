@@ -27,6 +27,7 @@ import {
   type SourceControlProviderKind,
   type SourceControlRepositoryInfo,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
+  type GitHubRepositoryDescription,
 } from "@t3tools/contracts";
 import { parseGitHubRepositoryLocator } from "@t3tools/shared/git";
 import { useNavigate, useParams } from "@tanstack/react-router";
