@@ -38,6 +38,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   LinkIcon,
+  LockIcon,
   MessageSquareIcon,
   PaletteIcon,
   SettingsIcon,
@@ -2188,9 +2189,27 @@ function OpenCommandPaletteDialog(props: {
           (repository): CommandPaletteActionItem => ({
             kind: "action",
             value: `github-search:${repository.nameWithOwner}`,
-            searchTerms: [repository.nameWithOwner, repository.url],
+            searchTerms: [
+              repository.nameWithOwner,
+              repository.url,
+              ...(repository.description ? [repository.description] : []),
+              ...(repository.primaryLanguage ? [repository.primaryLanguage] : []),
+            ],
             title: repository.nameWithOwner,
-            description: repository.url,
+            ...(repository.isPrivate
+              ? {
+                  titleTrailingContent: (
+                    <LockIcon
+                      aria-label="Private repository"
+                      className="size-3 shrink-0 text-muted-foreground/70"
+                    />
+                  ),
+                }
+              : {}),
+            description: <GitHubRepositoryDescription repository={repository} />,
+            ...(repository.updatedAt
+              ? { timestamp: formatRelativeTimeLabel(repository.updatedAt) }
+              : {}),
             icon: <GitHubIcon className={ITEM_ICON_CLASS} />,
             keepOpen: true,
             run: async () => {

@@ -553,6 +553,12 @@ describe("GitHubCli.layer", () => {
         {
           full_name: "octocat/recent-project",
           html_url: "https://github.com/octocat/recent-project",
+          description: "  Recent work  ",
+          private: true,
+          language: "TypeScript",
+          stargazers_count: 42,
+          pushed_at: "2026-09-17T12:00:00Z",
+          updated_at: "2026-09-18T00:00:00Z",
         },
       ]);
     }) as typeof fetch;
@@ -592,6 +598,11 @@ describe("GitHubCli.layer", () => {
           nameWithOwner: "octocat/recent-project",
           url: "https://github.com/octocat/recent-project",
           sshUrl: "git@github.com:octocat/recent-project.git",
+          description: "Recent work",
+          isPrivate: true,
+          primaryLanguage: "TypeScript",
+          stargazerCount: 42,
+          updatedAt: "2026-09-17T12:00:00Z",
         },
       ]);
       assert.equal(requested.length, 1);

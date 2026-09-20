@@ -267,6 +267,11 @@ export interface GitHubRepositoryCloneUrls {
   readonly nameWithOwner: string;
   readonly url: string;
   readonly sshUrl: string;
+  readonly description?: string;
+  readonly isPrivate?: boolean;
+  readonly primaryLanguage?: string;
+  readonly stargazerCount?: number;
+  readonly updatedAt?: string;
 }
 
 export class GitHubCli extends Context.Service<
@@ -372,10 +377,23 @@ function cloneUrlsFromGitHubRest(
   const fallback = cloneUrlsFromLocator(locator);
   const nameWithOwner = nonEmptyString(record.full_name) ?? fallback.nameWithOwner;
   const cloneUrl = nonEmptyString(record.clone_url)?.replace(/\.git$/i, "");
+  const description = nonEmptyString(record.description);
+  const primaryLanguage = nonEmptyString(record.language);
+  // pushed_at tracks code activity; updated_at also moves on metadata edits.
+  const updatedAt = nonEmptyString(record.pushed_at) ?? nonEmptyString(record.updated_at);
+  const stargazerCount =
+    typeof record.stargazers_count === "number" && Number.isInteger(record.stargazers_count)
+      ? record.stargazers_count
+      : undefined;
   return {
     nameWithOwner,
     url: nonEmptyString(record.html_url) || cloneUrl || fallback.url,
     sshUrl: nonEmptyString(record.ssh_url) || `git@github.com:${nameWithOwner}.git`,
+    ...(description !== undefined ? { description } : {}),
+    ...(typeof record.private === "boolean" ? { isPrivate: record.private } : {}),
+    ...(primaryLanguage !== undefined ? { primaryLanguage } : {}),
+    ...(stargazerCount !== undefined ? { stargazerCount } : {}),
+    ...(updatedAt !== undefined ? { updatedAt } : {}),
   };
 }
 

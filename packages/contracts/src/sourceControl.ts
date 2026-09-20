@@ -54,6 +54,12 @@ export const SourceControlRepositoryInfo = Schema.Struct({
   nameWithOwner: TrimmedNonEmptyString,
   url: TrimmedNonEmptyString,
   sshUrl: TrimmedNonEmptyString,
+  // Listing metadata. Only populated by providers that return it (GitHub search/list).
+  description: Schema.optional(TrimmedNonEmptyString),
+  isPrivate: Schema.optional(Schema.Boolean),
+  primaryLanguage: Schema.optional(TrimmedNonEmptyString),
+  stargazerCount: Schema.optional(Schema.Int),
+  updatedAt: Schema.optional(TrimmedNonEmptyString),
 });
 export type SourceControlRepositoryInfo = typeof SourceControlRepositoryInfo.Type;
 
